@@ -1,5 +1,7 @@
 ﻿USCT Addsig2VoL Ellipsoide/SAFT Imaging Core 
 
+Copyright Karlsruhe insitute of Technolog, michael Zapf, 2016
+
 About:
 -------
 Makes an SAFT image reconstruction. Fast.
