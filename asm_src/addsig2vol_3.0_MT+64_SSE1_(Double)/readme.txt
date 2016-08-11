@@ -1,11 +1,16 @@
-﻿USCT Addsig2VoL Ellipsoide/SAFT Imaging Core 
+﻿USCT Addsig2VoL Ellipsoide backprojection/Synthetic apertue focssing technique Imaging Core 
 
-Copyright Karlsruhe insitute of Technolog, michael Zapf, 2016
+Karlsruhe institute of Technolog, michael Zapf, 2016
 
 About:
 -------
 Makes an SAFT image reconstruction. Fast.
 And without seat belts, so beware of wrong parameter handover!
+
+license:
+--------
+lgplv2.1
+(contact me if this is a problem)
 
 
 Features:
@@ -78,6 +83,8 @@ http://www.osronline.com/ddkx/kmarch/64bitamd_6wmf.htm
 
 Revisison history:
 ------------------
+
+2016-08 Finally open sourced....
 
 2011-03 new 64bit built for linux, portable FPU flags and realtime measurement, usage of "pstdint.h" from Paul Hsieh
 
