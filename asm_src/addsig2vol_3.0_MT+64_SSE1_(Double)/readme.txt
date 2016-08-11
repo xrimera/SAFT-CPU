@@ -1,6 +1,6 @@
 ﻿USCT Addsig2VoL Ellipsoide backprojection/Synthetic apertue focssing technique Imaging Core 
 
-Karlsruhe institute of Technolog, michael Zapf, 2016
+Karlsruhe Institute of Technology, michael Zapf, 2016
 
 About:
 -------
