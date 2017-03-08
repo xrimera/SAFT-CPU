@@ -1,10 +1,12 @@
 USCT Addsig2VoL Ellipsoide backprojection/Synthetic aperture imaging Imaging Core 
-
-Karlsruhe Institute of Technology, michael Zapf, 2016
+Karlsruhe Institute of Technology, Michael Zapf, 2016
 
 About:
 -------
 Makes an SAFT 3D image reconstruction. Fast. Limited parameter checks, so beware of wrong parameter handover!
+
+Some paper
+https://www.academia.edu/18822458/_title_High_throughput_SAFT_for_an_experimental_USCT_system_as_MATLAB_implementation_with_use_of_SIMD_CPU_instructions_title_
 
 
 license
@@ -43,4 +45,4 @@ Usage:
 
 
 
-Build Notes in the readme in the subfdirectory
+Build Notes in the readme in the subdirectory
