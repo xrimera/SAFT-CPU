@@ -20,13 +20,18 @@
 #endif
 
 #ifdef __WIN32__
-#include <windows.h>     
-#include <float.h>
+    #include <windows.h>
+    #include <float.h>
 #else
-          #define _POSIX_C_SOURCE = 199309L
-            #define _POSIX_TIMERS 1  
+    #define _POSIX_C_SOURCE 199309L
+    #define _POSIX_TIMERS 1
 #endif
-        
+
+#ifdef __linux__
+    #include <time.h>
+    #include <unistd.h>
+#endif
+
 #include "mex.h"
 #include <math.h>
 #include <stdio.h>
@@ -64,7 +69,7 @@ __declspec(dllimport) __imp_pthread_create();
 //enable/disable debugging output
 #define addsig2vol_debug
 #undef addsig2vol_debug
-        
+
 // enable/disable pthreads
 #define p_threads
 
@@ -73,7 +78,7 @@ __declspec(dllimport) __imp_pthread_create();
 
 #ifdef p_threads
 #include "pthread.h"
-#define NUMCORES 32 //potential maximum value for init structs etc.
+#define NUMCORES 4 //32 //potential maximum value for init structs etc.
 #else
 #define NUMCORES 1
 #endif
@@ -84,7 +89,7 @@ __declspec(dllimport) __imp_pthread_create();
 //define min-Voxel Number for X (parallel voxels in X_pipe; for 64bit code = 4voxel, for 32 bit = 2voxel)
 #define MIN_VOXEL 4
 
-//define matlab in and out 
+//define matlab in and out
 #define out       plhs[0]
 #define out2      plhs[1]
 
@@ -98,9 +103,9 @@ __declspec(dllimport) __imp_pthread_create();
 #define IMAGE_XYZ prhs[7]
 #define IMAGE_SUM prhs[8]
 
-//global variable 
+//global variable
 unsigned int addsig2vol_mode=0; //mode = single ascan, constant speed, 1=blocked, constant speed, 2= unblocked with soundmap
- 
+
 
 //for MT handling
 static int64_t latency[NUMCORES]={0}; //uint64_t nSec
@@ -117,7 +122,7 @@ static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, b
 //TEST-CASE 1
 //x=128; addsig2vol_3(4), image_1=zeros([x,x,x]); rand('seed',0); x=128; for i=1:2 ascan=rand([1 3000])'; [image_1,kkk]=addsig2vol_3(ascan,rand([3 1],'single'),10.*rand([3 1],'single'),400.*rand([3 1],'single'),rand([1 1],'single'),rand([1 1],'single'),rand([1 1],'single'),uint32([x,x,x]),image_1); end, j=reshape(image_1,[x x x]); imagesc(j(:,:,1));
 //j=reshape(image_1-image_2,[x x x]); figure; imagesc(j(:,:,128));
- 
+
 //// TEST--CASE Blocked
 //count=2; senderPos = 0.01.*rand(3,count); receiverPos = 0.01.*rand(3,count); IMAGE_STARTPOINT = [0,0,0]; IMAGE_RESOLUTION= 0.001; Speed=1500; TimeInterval=1e-7; DataLength=3000; Data=zeros(3000,count); Data(floor(DataLength.*rand(count,1)),1:count)=1;
 //x=100; bild=addsig2vol_3(Data,single(IMAGE_STARTPOINT),single(receiverPos),single(senderPos),single(Speed),single(IMAGE_RESOLUTION),single(TimeInterval),uint32([x,x,x]),zeros([x,x,x]));
@@ -129,9 +134,9 @@ static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, b
         double*AScanz;
         double*out_complexz;
         double*bufferz;
-        float*pix_vectz;  
+        float*pix_vectz;
 		double*buffer_complexz;
-        float*rec_posz; 
+        float*rec_posz;
         float*send_posz;
         float*speedz;
         float*resz;
@@ -148,7 +153,7 @@ static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, b
         unsigned int qwb2;
         unsigned int qwb3;
 		    } Addsig2vol_param;
-		    
+
   /* typedef   struct   //struct reorded to circumvent alignment problems, 64pointer then 32bit values
         {
         double*outz;
@@ -159,8 +164,8 @@ static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, b
         double*buffer_complexz;
         double *IMAGE_SUMz;
         double *IMAGE_SUM_complexz;
-        float*pix_vectz;  
-        float*rec_posz; 
+        float*pix_vectz;
+        float*rec_posz;
         float*send_posz;
         float*speedz;
         float*resz;
@@ -171,16 +176,16 @@ static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, b
         unsigned int n_Zz;
         } Addsig2vol_param;*/
 
-//CPUcount 		    
+//CPUcount
 uint64_t CPUCount(void);
 uint64_t TimeCounter(void);
 
 //fpu
 void fpu_check(void);
-         
-//ellipsoide backprojections		    
-void as2v_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*); 
-void as2v_complex_sm(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*); 
+
+//ellipsoide backprojections
+void as2v_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
+void as2v_complex_sm(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
 void as2v_c(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
 void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, float*pix_vectz,
 		    unsigned int n_Xz, float*rec_posz, float*send_posz, float*speedz, float*resz,
@@ -189,10 +194,10 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
 		    double* IMAGE_SUMz, double* IMAGE_SUM_complexz);
 
 //Xsum and interpol
-void xsum_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*); 
+void xsum_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
 void xsum_c(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
 
-//thread function		    
+//thread function
 void *thread_function(void *arg);
 
 //thread benchmark
@@ -205,16 +210,16 @@ void as2v_bench( uint64_t lat[],  uint64_t through[]);
 void mexFunction (int nlhs, mxArray*plhs[],
 		  int nrhs, const mxArray*prhs[]) {
 
- 
+
 	//int width_test;
   const mwSize* mwSizePtr;
 	unsigned int i;
 	unsigned int n_AScan;
 	unsigned int n_AScan_block;
 	double *AScan_pi;
-	  
+
 	float *rec_vec_ptr=NULL;
-    float *send_vec_ptr=NULL;    
+    float *send_vec_ptr=NULL;
     float *speed_vec_ptr=NULL;
 	unsigned int n_rec_vec_block;
 	unsigned int n_send_vec_block;
@@ -245,18 +250,18 @@ void mexFunction (int nlhs, mxArray*plhs[],
 		break;
 	case 0:
 		mexPrintf("\naddSig2Vol_2 SSE1 Assembler Optimized 64bit LINUX&Windows v3.1 (Multiple Rec-AScan Vers.)\n\n Calculate the ellip. backprojection.\nUses SSE.\n\n#define out       plhs[0] (Double(1:end))\n#define out2      plhs[1] DEBUG (Double(1:end))\n#define AScan     prhs[0] (Double(NxM))\n#define pix_vect  prhs[1] (Single(1:3))\n#define rec_pos   prhs[2] (Single(1:3xM) or Single(1:3x1))\n#define send_pos  prhs[3] (Single(1:3xM) or Single(1:3x1))\n#define speed     prhs[4] (Single (1x1 or 1xM))\n#define res       prhs[5] (Single)\n#define timeint   prhs[6] (Single)\n#define IMAGE_XYZ prhs[7] (UINT32(1:3))\n#define IMAGE_SUM prhs[8] (Double(1:end))\nFeatures: Win&Linux, 32&64bit version, SSE1-Assembler&C-Implementation, Multithreaded by PosixThreads (under windows pthreadsVC2.dll might be needed)\n\t %s. M.Zapf KIT-IPE\n\n",__DATE__);
-		
+
 		//benchmark
 		as2v_bench(&throughput[0], &latency[0]);
 		break;
-        
+
     case 1:
         if (((int)*((double*)mxGetPr(prhs[0]))<=NUMCORES) & ((int)*((double*)mxGetPr(prhs[0]))>=1))
         {
             mexPrintf("Clear Benchmark results, manual set used Cores to %i\n", (int)*((double*)mxGetPr(prhs[0])));
             nCores_bench = (uint32_t) ceil(*((double*)mxGetPr(prhs[0])));
-            
-            //fill 
+
+            //fill
             for (i=NUMCORES;i>0;i--)
             { throughput[i-1]=1;
               latency[i-1]=10000000;
@@ -266,18 +271,18 @@ void mexFunction (int nlhs, mxArray*plhs[],
         }
 		break;
 	case 9:
-    
+
     //init variables
 		//IMAGE_ptr       = *(uint32_t*) mxGetPr(IMAGE_XYZ);
 		n_X              = *((int*) mxGetPr(IMAGE_XYZ));//*IMAGE_ptr;
 		n_Y              = *((int*) mxGetPr(IMAGE_XYZ)+1);//*(IMAGE_ptr + 1);
-		 
+
 		//% workaround for matlab behaviour for size(IMAGE(1 x1x1))->reduced to 1 x1 (some kind of squeeze)
 		if (mxGetNumberOfElements(IMAGE_XYZ) < 3)
 			n_Z = 1;
 		else
 			n_Z  = *(((int*) mxGetPr(IMAGE_XYZ)+2));//*(IMAGE_ptr + 2);
-            
+
     	//check if X_Dim >= MIN_VOXEL
 		if (n_X < MIN_VOXEL)
 		{
@@ -287,7 +292,7 @@ void mexFunction (int nlhs, mxArray*plhs[],
 	  }
     //number of voxel
 		n_IMAGE   = n_X * n_Y * n_Z;
-				
+
 		//check code if parameter are coherent, if not exit
 	  if (mxGetNumberOfElements(IMAGE_SUM)!=n_IMAGE)
 	  {
@@ -295,49 +300,49 @@ void mexFunction (int nlhs, mxArray*plhs[],
 	  mexPrintf("Error: Size mismatch of [X Y Z] and size of image, break\n");
 	  return;
 	  }
-	    #ifdef addsig2vol_debug  
+	    #ifdef addsig2vol_debug
 		mexPrintf("mxGetNumberOfElements(IMAGE_SUM):  %i\n", mxGetNumberOfElements(IMAGE_SUM));
 		mexPrintf("n_IMAGE:  %i\n", nCores_bench);
 		#endif
-                
-	 #ifdef addsig2vol_debug 
+
+	 #ifdef addsig2vol_debug
     //fpu_status
      fpu_check();
 	 #endif
-                
+
 	 ////benchmark of performance, selecting number of threads
-    if (nCores_bench==-1) as2v_bench(&throughput[0], &latency[0]); 
-    
+    if (nCores_bench==-1) as2v_bench(&throughput[0], &latency[0]);
+
     //select if use or not use multithreading
-     #ifdef addsig2vol_debug 
+     #ifdef addsig2vol_debug
       mexPrintf("selectedCore perf: %f , %f\n",((double)n_IMAGE/((double)throughput[nCores_bench-1] * 1000000))+((double)latency[nCores_bench-1]/1000000000),(((double)n_IMAGE/((double)throughput[0]*1000000))+((double)latency[0]/1000000000)));
       mexPrintf("nimage %i, throughput: %f , latency %f, %f, %f\n",n_IMAGE, (double)throughput[nCores_bench-1],(double)latency[nCores_bench-1],(double)throughput[0],(double)latency[0]);
-     #endif     
-     
+     #endif
+
     if ( ( ((double)n_IMAGE/((double)throughput[nCores_bench-1] *1000000))+((double)latency[nCores_bench-1]/1000000000)) <= (((double)n_IMAGE/((double)throughput[0] *1000000))+((double)latency[0]/1000000000)))
          {  nCores = nCores_bench;}
     else {
-      #ifdef addsig2vol_debug 
+      #ifdef addsig2vol_debug
       mexPrintf("Overhead to big, switch to single thread.\n");
       #endif
       nCores = 1;}
-      
-    #ifdef addsig2vol_debug  
+
+    #ifdef addsig2vol_debug
 		mexPrintf("selectedNumCores:  %i\n", nCores);
 		mexPrintf("savedNumCORE:  %i\n", nCores_bench);
 		mexPrintf("perf_MT:  %e\n", ( (throughput[nCores_bench] * n_IMAGE)+latency[nCores_bench]));
 		mexPrintf("perf_single:  %e\n", ((throughput[1]*n_IMAGE)+latency[1]));
 	#endif
-	   
-	  
+
+
 	  //////schlauchimage code (old)
 		//setImageDim[0]  = n_IMAGE;
 		//setImageDim[1]  = 1;        //z.b: 400000x1
-					
+
 		//////NOT Schlauchimage Code
 		setImageDim[0]  = n_X;
-		setImageDim[1]  = n_Y;        
-		setImageDim[2]  = n_Z;    
+		setImageDim[1]  = n_Y;
+		setImageDim[2]  = n_Z;
 
     ////check for BLOCKED/UNBlocked Parameters
 		BUFFER_ptr      = (mwSize*) mxGetDimensions(AScan);
@@ -350,15 +355,15 @@ void mexFunction (int nlhs, mxArray*plhs[],
     n_send_vec_block= (unsigned int) mwSizePtr[1];//*(int*)(send_vec_ptr + 1);
     mwSizePtr       = mxGetDimensions(speed); //dimension of send-vec
     n_speed_vec_block= (unsigned int) mwSizePtr[1];//*(int*)(send_vec_ptr + 1);
-    
+
     //soundmap version ?
 mexPrintf("Info: Soundmap versionrrr\n");
     if ( ((unsigned int) mwSizePtr[0]==n_X) & ((unsigned int) mwSizePtr[1]==n_Y) & ((unsigned int) mwSizePtr[2]==n_Z | mxGetNumberOfDimensions(speed)==2) )
     { mexPrintf("Info: Soundmap version\n");
     addsig2vol_mode = 2;
-    }    
-    else{ //not soundmapversion; blocked version? 
-        
+    }
+    else{ //not soundmapversion; blocked version?
+
         if ( ((*(unsigned int*)mxGetDimensions(rec_pos))!=3) | ((*(unsigned int*)mxGetDimensions(send_pos))!=3)) //check first dimension
         {
         #ifdef addsig2vol_debug
@@ -368,7 +373,7 @@ mexPrintf("Info: Soundmap versionrrr\n");
         out     = mxCreateDoubleMatrix(0, 0, mxCOMPLEX); //out  == empty
         mexPrintf("Error: 3-d vectors needed for emitter & receiver positions or transposed blocked pos (1x3 instead of 3x1), break\n");
         return;}
-    
+
 
          #ifdef addsig2vol_debug
             mexPrintf("nascan: %d,ascan_block: %d, blocksize rec_vec: %d, blocksize send_vec: %d",n_AScan,n_AScan_block,n_rec_vec_block,n_send_vec_block);
@@ -393,12 +398,12 @@ mexPrintf("Info: Soundmap versionrrr\n");
     }
 		setBufferDim[0] = (*BUFFER_ptr) * INTERP_RATIO;
 		setBufferDim[1] = 1;   //z.b: 400000x1
-        
-        #ifdef addsig2vol_debug  
+
+        #ifdef addsig2vol_debug
         mexPrintf("(*BUFFER_ptr) :  %i\n", (*BUFFER_ptr));
 		mexPrintf("mxGetNumberOfElements(IMAGE_XYZ):  %i\n",mxGetNumberOfElements(IMAGE_XYZ));
 		#endif
-        
+
 		//DEBUG
 		//if (n_AScan<(2*wid+2)) mexErrMsgTxt("1. Array not 2 times +2 greater value 3 ");
 		/*mexPrintf("n_AScan :  %i\n\n", n_AScan );
@@ -418,18 +423,18 @@ mexPrintf("Info: Soundmap versionrrr\n");
 		AScan_pi = mxGetPi(AScan);
 
 		//anlegen puffer fuer xsum & image
-		if (AScan_pi != NULL) 
+		if (AScan_pi != NULL)
 		    { //complex
 			out     = mxCreateDoubleMatrix(0, 0, mxCOMPLEX);//out        = mxCreateDoubleMatrix(0, 0, mxCOMPLEX);             //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
-			if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;} 
+			if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
             mxSetDimensions(out, setImageDim, mxGetNumberOfElements(IMAGE_XYZ)); // UNSAFE if SCHLAUCHINPUT!!! mxGetNumberOfDimensions(IMAGE_SUM)); //bsp. 3000x1  -> (3000,1) ,2                      //bsp. 3000x1  -> (3000,1) ,2
 			pr = mxMalloc(n_IMAGE * sizeof(double));
-            if (pr==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;} 
+            if (pr==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
 			pi = mxMalloc(n_IMAGE * sizeof(double));
             if (pi==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
 			mxSetPr(out, pr);
 			mxSetPi(out, pi);
-			
+
 			buffer = mxCreateDoubleMatrix(0, 0, mxCOMPLEX);                         //Sum buffer laenge ascan
 			mxSetDimensions(buffer, setBufferDim, mxGetNumberOfDimensions(AScan));  //bsp. 3000x1  -> (3000,1) ,2
 			pr = mxMalloc(INTERP_RATIO * n_AScan * sizeof(double));
@@ -438,7 +443,7 @@ mexPrintf("Info: Soundmap versionrrr\n");
 			mxSetPi(buffer, pi);
 		} else { //real
 			out        = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
-			if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;} 
+			if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
             mxSetDimensions(out, setImageDim,mxGetNumberOfElements(IMAGE_XYZ)); // UNSAFE if SCHLAUCHINPUT!!!mxGetNumberOfDimensions(IMAGE_SUM)); //bsp. 3000x1  -> (3000,1) ,2
 			pr = mxMalloc(n_IMAGE * sizeof(double));
             if (pr==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
@@ -454,7 +459,7 @@ mexPrintf("Info: Soundmap versionrrr\n");
 			mxSetPi(buffer, NULL);
 
 		}
-	    #ifdef addsig2vol_debug  
+	    #ifdef addsig2vol_debug
         mexPrintf("mxGetNumberOfElements(IMAGE_SUM):  %i\n", mxGetNumberOfElements(out));
 		mexPrintf("mxGetNumberOfElements(IMAGE_XYZ):  %i\n",mxGetNumberOfElements(IMAGE_XYZ));
 		mexPrintf(" mxGetNumberOfElements(out):  %i\n", mxGetNumberOfElements(out));
@@ -463,10 +468,10 @@ mexPrintf("Info: Soundmap versionrrr\n");
         mexPrintf("  setImageDim[1]:  %i\n", setImageDim[1]);
         mexPrintf("  setImageDim[2]:  %i\n", setImageDim[2]);
 		#endif
-               
+
 		////first Ascan
 		// combined REAL & COMPLEX VERSION
-    
+
 		//no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
 		as2v_MT(mxGetPr(out), mxGetPr(AScan), n_AScan, mxGetPr(buffer),
 			     (float*)mxGetPr(pix_vect), n_X, (float*)mxGetPr(rec_pos), (float*)mxGetPr(send_pos),
@@ -475,7 +480,7 @@ mexPrintf("Info: Soundmap versionrrr\n");
 				     buffer), mxGetPi(
 				     out), n_Y, n_Z, mxGetPr(IMAGE_SUM), mxGetPi(
 				     IMAGE_SUM));
-		
+
 		//loop over ascans > 1
 		for (i = 2; i <= n_AScan_block; i++) {
 			//check for complex ascan only increase if available because NULL-Pointer +something -> not anymore a nullpointer!
@@ -503,8 +508,8 @@ mexPrintf("Info: Soundmap versionrrr\n");
 					     timeint), AScan_pi, mxGetPi(buffer),
 				     mxGetPi(out), n_Y, n_Z, mxGetPr(out), mxGetPi(
 					     out));
-		
-		
+
+
 		/*	as2v_MT(mxGetPr(out), mxGetPr(
 					     AScan) + (n_AScan * (i - 1)), n_AScan, mxGetPr(
 					     buffer), mxGetPr(
@@ -524,13 +529,13 @@ mexPrintf("Info: Soundmap versionrrr\n");
 //             mexCallMATLAB(0, NULL, 0, NULL, "figure");
 //             mexCallMATLAB(0, NULL, 1, &ascan_output_buffer, "plot");
 //             mexCallMATLAB(0, NULL, 1, &recpos_output_buffer, "disp");
-		
+
             }
 		   out2 = buffer;
        //mxDestroyArray(buffer);
-		   break;	
+		   break;
 
-	//////////////////////////////////////////////////////////////////////////////////////////////////////////////	
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	} //end switch
 
@@ -554,39 +559,39 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     pthread_t mythread[NUMCORES]; //numCPU -1
     int rc = 0; //return-value from thread functions
 #endif
-    Addsig2vol_param threadArg[NUMCORES]; //numCPU -1 BUT for NUM 1 
+    Addsig2vol_param threadArg[NUMCORES]; //numCPU -1 BUT for NUM 1
     float pix_vecz_buffer[NUMCORES][3]= {0,0,0};
     unsigned int n_Zz_start = 0;
     unsigned int n_Zz_num = 0;
     //unsigned int nCores = NUMCORES;
     unsigned int i = 0;
-      
-      
+
+
     ////////Z-Layer multithreading, use multi-threading if enough Z-layers imaged
     if (n_Zz>1)
       {
       //limit to usefull number
       if (n_Zz < nCores)  nCores = n_Zz;
-    
+
       #ifdef addsig2vol_debug
       mexPrintf("Z-Dim multithreading\n");
       #endif
-      
+
       //Generate parameter structs for Z-multithreading
 		  for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
         {
         n_Zz_num  = (unsigned int)(floor(n_Zz/nCores));
         n_Zz_start = n_Zz_num*i*n_Xz*n_Yz;
-        
-         //set picture startpoint       
+
+         //set picture startpoint
         pix_vecz_buffer[i][0]= *pix_vectz;
         pix_vecz_buffer[i][1]= *(pix_vectz+1);
         pix_vecz_buffer[i][2]= (*(pix_vectz+2))+n_Zz_num*i* *resz;
-        
+
         if (i==nCores-1)
         {      //compensated number for FLOOR/CEIL rounding probs
         n_Zz_num = (unsigned int)(n_Zz-floor(n_Zz/nCores)*(nCores-1));}
-        
+
         /* mexPrintf("delta_address :  %p\n\n", (pix_vectz));
         mexPrintf("z :  %f\n\n", *(pix_vectz+2));
         mexPrintf("z_num :  %i\n\n", n_Zz_num);
@@ -595,7 +600,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         mexPrintf("y :  %f\n\n", pix_vecz_buffer[i][1]);
         mexPrintf("z :  %f\n\n", pix_vecz_buffer[i][2]);
         mexPrintf("p_x :  %p\n\n", &(pix_vecz_buffer[i][0]));*/
-      
+
         //fill parameter struct
         threadArg[i].outz=outz+n_Zz_start;//
         threadArg[i].AScanz=AScanz;
@@ -618,32 +623,32 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         }
       }
       else  {
-      
+
      //Y-DIM multithreading because Z-layer = 1, use multithreading if enough Y-layers imaged
       if (n_Yz>1)
       {
       //limit to usefull number
       if (n_Yz < nCores)  nCores = n_Yz;
-    
+
       #ifdef addsig2vol_debug
       mexPrintf("Y-Dim multithreading\n");
       #endif
-    
+
       //Generate parameter structs for Y-multithreading
 	  	for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
         {
         n_Zz_num  = (unsigned int)(floor(n_Yz/nCores));
         n_Zz_start = n_Zz_num*i*n_Xz;
-        
-         //set picture startpoint       
+
+         //set picture startpoint
         pix_vecz_buffer[i][0]= *pix_vectz;
         pix_vecz_buffer[i][1]= (*(pix_vectz+1))+n_Zz_num*i* *resz;
         pix_vecz_buffer[i][2]= *(pix_vectz+2);
-        
+
         if (i==nCores-1)
         {      //compensated number for FLOOR/CEIL rounding probs
         n_Zz_num = (unsigned int)(n_Yz-floor(n_Yz/nCores)*(nCores-1));}
-        
+
         //fill parameter struct
         threadArg[i].outz=outz+n_Zz_start;//
         threadArg[i].AScanz=AScanz;
@@ -664,15 +669,15 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         threadArg[i].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
         threadArg[i].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
         }
-      
-      }else  
+
+      }else
         { //no multi-threading
         nCores = 1;
-        
+
         #ifdef addsig2vol_debug
         mexPrintf("No multithreading\n");
         #endif
-                  
+
         //fill parameter struct
         threadArg[nCores-1].outz=outz;//
         threadArg[nCores-1].AScanz=AScanz;
@@ -693,54 +698,54 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         threadArg[nCores-1].IMAGE_SUMz=IMAGE_SUMz;//
         threadArg[nCores-1].IMAGE_SUM_complexz=IMAGE_SUM_complexz; //
         }
-      }    
-          
+      }
+
       ////////////////////imaging
 
-      //interpol & X-SUM (in the case of NUMCORE=1 only call)  
+      //interpol & X-SUM (in the case of NUMCORE=1 only call)
       #ifdef C_CODE
-      xsum_c(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]); 
+      xsum_c(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
       #else
-      xsum_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);    
+      xsum_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
       #endif
-     
-      ////release threads 
+
+      ////release threads
       for (i=0;i<nCores-1;i++)
 	  {
-      #ifdef p_threads 
+      #ifdef p_threads
       rc = pthread_create( &(mythread[i]), NULL, thread_function, (void*)&(threadArg[i]));
       if (rc) { mexPrintf("ERROR: return code from pthread_create() is %d\n", rc); return;}
       #endif
       }
-    	
-	//imaging-call of last part (in the case of NUMCORE=1 only call)  
+
+	//imaging-call of last part (in the case of NUMCORE=1 only call)
       #ifdef C_CODE
       as2v_c(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
       #else
       if (addsig2vol_mode==0) as2v_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
       if (addsig2vol_mode==2) as2v_complex_sm(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
-      
+
       #endif
-			//catches threads again	     
+			//catches threads again
 			for (i=0;i<nCores-1;i++)
 		  {
               #ifdef p_threads
               rc = pthread_join ( mythread[i], NULL );
               if (rc) { mexPrintf("ERROR: return code from pthread_join() is %d\n", rc); return;}
               #endif
-        }	     
+        }
 
       //set because because potentially reduced by imagesize
-      //if (nCores_bench >0) nCores = nCores_bench;      
-      
-      
+      //if (nCores_bench >0) nCores = nCores_bench;
+
+
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void as2v_c(Addsig2vol_param* tt, Addsig2vol_param* t1, Addsig2vol_param* t2, Addsig2vol_param* t3)
 {
-    
+
       ///TODO: COMPLEX part!!!!
 
 float dist_sv[3] = {0,0,0};
@@ -755,9 +760,9 @@ unsigned int z,y,x,sampl = 0;
         double*AScanz = tt->AScanz;
         double*out_complexz=tt->out_complexz;
         double*bufferz = tt->bufferz;
-        float*pix_vectz = tt->pix_vectz;  
+        float*pix_vectz = tt->pix_vectz;
 		    double*buffer_complexz=tt->buffer_complexz;
-        float*rec_posz = tt->rec_posz; 
+        float*rec_posz = tt->rec_posz;
         float*send_posz = tt->send_posz;
         float*speedz = tt->speedz;
         float*resz = tt->resz;
@@ -769,7 +774,7 @@ unsigned int z,y,x,sampl = 0;
         unsigned int n_Zz = tt->n_Zz;
         unsigned int n_AScanz = tt->n_AScanz;
         unsigned int n_Xz = tt->n_Xz;
-		    
+
 ///bildgebung
 
 factor =  INTERP_RATIO / (*speedz * *timeintz);
@@ -807,7 +812,7 @@ for (z=1; z<=n_Zz; z++)
 					outz[image_index] = IMAGE_SUMz[image_index]; //nix addiert
 				else
 					outz[image_index] = IMAGE_SUMz[image_index] + bufferz[index];//AScanz[index];
-					
+
 				image_index++;
 			}
 		}
@@ -837,14 +842,14 @@ double* sec_buffer;
 		    tt->timeintz, tt->AScan_complexz,
 		    tt->buffer_complexz, tt->out_complexz, tt->n_Yz, tt->n_Zz,
 		    tt->IMAGE_SUMz, tt->IMAGE_SUM_complexz);*/
-		    
+
 		double*outz = tt->outz;
         double*AScanz = tt->AScanz;
         double*out_complexz=tt->out_complexz;
         double*bufferz = tt->bufferz;
-        float*pix_vectz = tt->pix_vectz;  
+        float*pix_vectz = tt->pix_vectz;
 		    double*buffer_complexz=tt->buffer_complexz;
-        float*rec_posz = tt->rec_posz; 
+        float*rec_posz = tt->rec_posz;
         float*send_posz = tt->send_posz;
         float*speedz = tt->speedz;
         float*resz = tt->resz;
@@ -856,13 +861,13 @@ double* sec_buffer;
         unsigned int n_Zz = tt->n_Zz;
         unsigned int n_AScanz = tt->n_AScanz;
         unsigned int n_Xz = tt->n_Xz;
-		 
+
 #ifdef addsig2vol_debug
 for (i=0;i<n_AScanz*INTERP_RATIO;i++)
 {	bufferz[i] = i; //set marking for NON-set or initalized values
-}  
-#endif       
-        
+}
+#endif
+
 //C-Version needs second buffer
 sec_buffer = mxMalloc(INTERP_RATIO * n_AScanz * sizeof(double));
 
@@ -901,9 +906,9 @@ for (i=0;i<sampl;i++)
 	bufferz[i] = i_buffer;}
 }
 
-for (i=sampl;i<(n_AScanz*INTERP_RATIO)-sampl;i++)  
+for (i=sampl;i<(n_AScanz*INTERP_RATIO)-sampl;i++)
 { if (i+sampl<n_AScanz*INTERP_RATIO){
-    i_buffer = i_buffer + sec_buffer[i+sampl]/(2*sampl) - sec_buffer[i-sampl]/(2*sampl); 
+    i_buffer = i_buffer + sec_buffer[i+sampl]/(2*sampl) - sec_buffer[i-sampl]/(2*sampl);
 	bufferz[i] = i_buffer;}
 }
 
@@ -921,8 +926,8 @@ mxFree(sec_buffer);
 
 ///////////////////////////////////////////////
 
- void *thread_function(void *arg) 
-{   
+ void *thread_function(void *arg)
+{
     Addsig2vol_param* tt = (Addsig2vol_param*) arg;
 
     //imaging call with four times pointer to struct
@@ -931,24 +936,24 @@ mxFree(sec_buffer);
     #else
     if (addsig2vol_mode==0) as2v_complex(arg,arg,arg,arg);
     if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
-      
+
     #endif
-   
-   //decomposing for old function 
+
+   //decomposing for old function
    /* as2v_c(tt->outz, tt->AScanz, tt->n_AScanz, tt->bufferz, tt->pix_vectz,
 		    tt->n_Xz, tt->rec_posz, tt->send_posz, tt->speedz, tt->resz,
 		    tt->timeintz, tt->AScan_complexz,
 		    tt->buffer_complexz, tt->out_complexz, tt->n_Yz, tt->n_Zz,
 		    tt->IMAGE_SUMz, tt->IMAGE_SUM_complexz);*/
-     	
+
      return NULL;
 }
 
 ////////////////////////////////////////////////////////////////////
 
 void as2v_bench(uint64_t throughput[], uint64_t latency[])
-{      
-    #pragma fenv_access (on)  
+{
+    #pragma fenv_access (on)
     uint32_t i,j,l,k;
 	uint32_t n_AScan;
 	uint32_t n_AScan_block;
@@ -969,97 +974,97 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
     double* pr2;
     double*pr3;
     double*pr4;*/
-    
+
     #define MAX_AVERAGE 128
     uint64_t average_buffer[MAX_AVERAGE]={0};
     uint64_t throughput_sort_buffer[NUMCORES]={0};
     uint64_t counter, counter2, stdabw, mittelw;
     uint64_t bench_ref_time=0; //ns
-    
+
     uint64_t minBenchTime = 100000000; //ns
-   
+
     uint32_t minAverage = 7;
     uint32_t average = 8;
-    uint32_t nVoxel_throughput = 256;   
-    
+    uint32_t nVoxel_throughput = 256;
+
     mxArray *AScan_bench;
 	mxArray *buffer_bench;
-	mxArray *out_bench; 
+	mxArray *out_bench;
 	mxArray *image_sum_bench;
-	mxArray *time_bench;    
-    
+	mxArray *time_bench;
+
     //autodetect free memory
    /*  do { nVoxel_throughput=(uint32_t) nVoxel_throughput/2;
        pr = mxMalloc(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput * sizeof(double));
      if (pr!=NULL)  mxFree(pr);
        nVoxel_throughput=(uint32_t) nVoxel_throughput/2; //nocnmal halbieren f�r 2Bilder
    } while (pr==NULL);*/
-    
-  mexPrintf("Benchmarking System:\nLatency with %d Byte Image\nThroughput with %d kByte Image.\n",(int)(MIN_VOXEL*NUMCORES*sizeof(double)),(int)(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput*sizeof(double))/1024);    
-  mexPrintf("Threads | Throughput in MVoxel/s                     | Latency in nsec                              | Median-Size\n");    
-  mexPrintf("        | Median | Mean   | Min    | Max    | Std    | Median    | Min       | Max       | Std      | \n");    
-  mexPrintf("-----------------------------------------------------------------------------------------------------------\n");    
- 
+
+  mexPrintf("Benchmarking System:\nLatency with %d Byte Image\nThroughput with %d kByte Image.\n",(int)(MIN_VOXEL*NUMCORES*sizeof(double)),(int)(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput*sizeof(double))/1024);
+  mexPrintf("Threads | Throughput in MVoxel/s                     | Latency in nsec                              | Median-Size\n");
+  mexPrintf("        | Median | Mean   | Min    | Max    | Std    | Median    | Min       | Max       | Std      | \n");
+  mexPrintf("-----------------------------------------------------------------------------------------------------------\n");
+
   //check for minimum amount
   if (nVoxel_throughput<NUMCORES*MIN_VOXEL) nVoxel_throughput=NUMCORES*MIN_VOXEL;
   /////kill eventually running tic-toc!!! (not needed)
    //mexCallMATLAB(0, NULL, 0, NULL, "toc");
-	
+
 	////fix variables
 	time_bench = mxCreateDoubleMatrix(1,1,mxREAL);
 	n_AScan        = 3000;        //gesamtanzahl elemente IN EINEM ASCAN!!!
 	n_AScan_block  = 1;    //2 dim %number of parallel
-  
+
     //buffer
     setBufferDim[0] = n_AScan * INTERP_RATIO;
 	setBufferDim[1] = 1;   //z.b: 400000x1
-	
+
 	//ascan
 	setAScanDim[0] = n_AScan;
 	setAScanDim[1] = 1;   //z.b: 400000x1
-		
+
 	buffer_bench = mxCreateDoubleMatrix(0, 0, mxREAL);   //Sum buffer laenge ascan
 	mxSetDimensions(buffer_bench, setBufferDim, 2);  //bsp. 3000x1  -> (3000,1) ,2
 	pr = mxMalloc(INTERP_RATIO * n_AScan * sizeof(double));
 	mxSetPr(buffer_bench, pr);
 	mxSetPi(buffer_bench, NULL);
     //pr1=pr;
-			
+
 	AScan_bench = mxCreateDoubleMatrix(0, 0, mxREAL);   //Sum buffer laenge ascan
 	mxSetDimensions(AScan_bench, setAScanDim, 2);  //bsp. 3000x1  -> (3000,1) ,2
 	pr = mxMalloc(n_AScan * sizeof(double));
 	mxSetPr(AScan_bench, pr);
 	mxSetPi(AScan_bench, NULL);
     //pr2=pr;
-	
+
     ///////////////throughput calc (assumption for Latency = Zero because working in saturation)
 	n_X             = nVoxel_throughput;
 	n_Y             = nVoxel_throughput;
     n_Z             = nVoxel_throughput;
-		    
+
     //number of voxel
 		n_IMAGE         = n_X * n_Y * n_Z;
-					
+
 		//////NOT Schlauchimage Code
 		setImageDim[0]  = n_X;
-		setImageDim[1]  = n_Y;        
-		setImageDim[2]  = n_Z;    
-   
+		setImageDim[1]  = n_Y;
+		setImageDim[2]  = n_Z;
+
     		out_bench        = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
 			mxSetDimensions(out_bench, setImageDim, 3);                   //bsp. 3000x1  -> (3000,1) ,2
 			pr = mxMalloc(n_IMAGE * sizeof(double));
 			mxSetPr(out_bench, pr);
 			mxSetPi(out_bench, NULL);
             //pr3=pr;
-			
+
 			image_sum_bench  = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
 			mxSetDimensions(image_sum_bench, setImageDim, 3);                   //bsp. 3000x1  -> (3000,1) ,2
 			pr = mxMalloc(n_IMAGE * sizeof(double));
 			mxSetPr(image_sum_bench, pr);
 			mxSetPi(image_sum_bench, NULL);
             //pr4=pr;
-            
-            
+
+
        //first call to get REAL memory from system (WARMUP later on faster)
       //set nCore!!!
 	  nCores = 1;
@@ -1074,24 +1079,24 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
 				     image_sum_bench));
        counter2 = TimeCounter();
        } while (counter2<counter); //retry on error like used wrong core
-                 
+
         //get througput time time for setup average
-        bench_ref_time= counter2-counter; 
+        bench_ref_time= counter2-counter;
         //mexPrintf("benchreftime %llu c2:%llu c:%llu\n",bench_ref_time, counter, counter2);
         average = (uint32_t) ((minBenchTime/bench_ref_time)+1); //integer ceil
-        
-        if (average < minAverage) average = minAverage;  
-        if (average > MAX_AVERAGE) average = MAX_AVERAGE;  
-    
-    
-	for (i=1;i<=NUMCORES;i++) 
-	{ 
+
+        if (average < minAverage) average = minAverage;
+        if (average > MAX_AVERAGE) average = MAX_AVERAGE;
+
+
+	for (i=1;i<=NUMCORES;i++)
+	{
 	  //set nCore!!!
 		nCores = i;
-     
+
 	    //benchmark throughput
         //mexCallMATLAB(0, NULL, 0, NULL, "tic");
-        
+
 		for (j=0;j<average;j++)
          {
          do{ counter=TimeCounter();
@@ -1108,54 +1113,54 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
 			     &float_bench,
 			     &float_bench, &float_bench, NULL,NULL, NULL, n_Y, n_Z, pr4,NULL);*/
 		  //mexCallMATLAB(1, &time_bench, 0, NULL, "toc");
-          //mexPrintf("%llu ms\n",((TimeCounter()-counter)/1000000)); 
+          //mexPrintf("%llu ms\n",((TimeCounter()-counter)/1000000));
           counter2=TimeCounter();
          } while(counter2<counter); //retry on error like used wrong core
-          average_buffer[j]= counter2-counter; 
-        }        
-                
+          average_buffer[j]= counter2-counter;
+        }
+
         //bubblesort (small time top) for median
 		  for (k=average-1;k>0;k--)
           {  for (l=average-1;l>0;l--){
-                 if (average_buffer[l]<average_buffer[l-1]) {counter2=average_buffer[l-1]; average_buffer[l-1] = average_buffer[l]; average_buffer[l]=counter2;} 
+                 if (average_buffer[l]<average_buffer[l-1]) {counter2=average_buffer[l-1]; average_buffer[l-1] = average_buffer[l]; average_buffer[l]=counter2;}
              }
           }
-        
+
          mittelw=0;
          for  (k=0;k<average;k++)  {mittelw=average_buffer[k]+mittelw;}
          mittelw=(uint64_t) mittelw/average;
-         
+
          stdabw=0;
-         for  (k=0;k<average;k++)        
-         {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);} 
-         stdabw = (uint64_t) sqrt( (int64_t)stdabw/(int64_t)average);  
-           
-         #ifdef addsig2vol_debug 
+         for  (k=0;k<average;k++)
+         {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);}
+         stdabw = (uint64_t) sqrt( (int64_t)stdabw/(int64_t)average);
+
+         #ifdef addsig2vol_debug
           mexPrintf("minTime: %f, timeCounter: %llu counter: %llu\n",(float)(uint64_t)bench_ref_time,counter2,counter);
-           for (k=0;k<average;k++)               
+           for (k=0;k<average;k++)
            { mexPrintf("%llu average\n",average_buffer[k]);
            }
-         #endif           
-        
+         #endif
+
         //minimum selection
         bench_ref_time = (uint64_t) average_buffer[0];
         //median selection
         bench_ref_time = (uint64_t) average_buffer[(uint32_t) ceil(average/2)];
-            
+
         //throughput[i-1] = (uint64_t) ((double)n_IMAGE/ ((double) ((uint32_t) bench_ref_time)/1000)); //gekuerzt ns und MVoxel ->Mvoxel/s // index 0 = core1; index1 = core 2 etc...(!)
         throughput[i-1] =  ((1000*(uint64_t)n_IMAGE)/ bench_ref_time); //gekuerzt ns und MVoxel ->Mvoxel/s // index 0 = core1; index1 = core 2 etc...(!)
-  	
-        mexPrintf("%7i |%7llu |%7llu |%7llu |%7llu |%7llu", i, (int64_t)throughput[i-1],((1000*(int64_t)n_IMAGE)/(int64_t)mittelw), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[average-1]), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[0]), (1000*(int64_t)n_IMAGE)/((int64_t)stdabw));    
-  	
-        
+
+        mexPrintf("%7i |%7llu |%7llu |%7llu |%7llu |%7llu", i, (int64_t)throughput[i-1],((1000*(int64_t)n_IMAGE)/(int64_t)mittelw), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[average-1]), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[0]), (1000*(int64_t)n_IMAGE)/((int64_t)stdabw));
+
+
        //get throughput time time for setup average
        average = (uint32_t) ((minBenchTime/bench_ref_time)+1); //in ns; +1=integer-ceil
-       if (average < minAverage) average = minAverage;  
-       if (average > MAX_AVERAGE) average = MAX_AVERAGE;  
-       
+       if (average < minAverage) average = minAverage;
+       if (average > MAX_AVERAGE) average = MAX_AVERAGE;
+
 		 // printf("%e MVoxel/s for %i threads, %e sec through\n",(double)(4*n_IMAGE)/(*mxGetPr(time_bench)),n_IMAGE,*mxGetPr(time_bench));
       //  	  printf("%f",(float)(((4*2000000)/(*(double*)mxGetPr(time_bench)))));
-	  
+
 //         //first call to get REAL memory form system (later on faster)
 //       as2v_MT(mxGetPr(out_bench), mxGetPr(AScan_bench), n_AScan, mxGetPr(buffer_bench),
 // 			     &pix_vec_bench[0], n_X, &rec_vec_bench[0], &send_vec_bench[0],
@@ -1164,10 +1169,10 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
 // 				     buffer_bench), mxGetPi(
 // 				     out_bench), n_Y, n_Z, mxGetPr(image_sum_bench), mxGetPi(
 // 				     image_sum_bench));
-	
+
 	   ///////////////////////////////////////////////////////benchmark latency
 	//	 mexCallMATLAB(0, NULL, 0, NULL, "tic");
-       	  
+
 		for (j=0;j<minAverage;j++)
          {
           do{
@@ -1180,61 +1185,61 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
 				     buffer_bench), mxGetPi(
 				     out_bench), (unsigned int) 1,(unsigned int) NUMCORES, mxGetPr(image_sum_bench), mxGetPi(
 				     image_sum_bench));
-				     				 
+
 		//  mexCallMATLAB(1, &time_bench, 0, NULL, "toc");
         //latency[i] =(*mxGetPr(time_bench)/minAverage)/1;	 //assumption for 1 PIXEL!
 		 counter2 = TimeCounter(); } while(counter2<counter); //retry on error like used wrong core
-         average_buffer[j]= counter2-counter; 
-        }     
+         average_buffer[j]= counter2-counter;
+        }
         //bubblesort (small time top)
 		 for (k=minAverage-1;k>0;k--)
          {  for (l=minAverage-1;l>0;l--){
-               if (average_buffer[l]<average_buffer[l-1]) {counter2=average_buffer[l-1]; average_buffer[l-1] = average_buffer[l]; average_buffer[l]=counter2;} 
+               if (average_buffer[l]<average_buffer[l-1]) {counter2=average_buffer[l-1]; average_buffer[l-1] = average_buffer[l]; average_buffer[l]=counter2;}
             }
-         }    
-         #ifdef addsig2vol_debug 
-            for (k=0;k<minAverage;k++)               
+         }
+         #ifdef addsig2vol_debug
+            for (k=0;k<minAverage;k++)
            { mexPrintf("%llu average\n",average_buffer[k]);
            }
-        #endif  
-        
+        #endif
+
          mittelw=0;
          for  (k=0;k<minAverage;k++)  {mittelw=average_buffer[k]+mittelw;}
          mittelw=(uint64_t) mittelw/minAverage;
-         
+
          stdabw=0;
-         for  (k=0;k<minAverage;k++)        
-         {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);} 
-         stdabw = (uint64_t) sqrt((int64_t) stdabw/minAverage);  
-       
+         for  (k=0;k<minAverage;k++)
+         {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);}
+         stdabw = (uint64_t) sqrt((int64_t) stdabw/minAverage);
+
         //minimum selection
         latency[i-1] = (uint64_t) average_buffer[0];	 //assumption for 1 PIXEL! // index 0 = core1; index1 = core 2 etc...(!)
         //median selection
         latency[i-1] = (uint64_t) average_buffer[(uint32_t) ceil(minAverage/2)];
-	    mexPrintf("|%10llu |%10llu |%10llu |%10llu |%8i\n", latency[i-1],average_buffer[0],average_buffer[minAverage-1],stdabw,average);    
-  		}         
- 
+	    mexPrintf("|%10llu |%10llu |%10llu |%10llu |%8i\n", latency[i-1],average_buffer[0],average_buffer[minAverage-1],stdabw,average);
+  		}
+
 		for (i=NUMCORES;i>0;i--)
         { throughput_sort_buffer[i-1]=throughput[i-1];
 		}
-		    
+
       //bubblesort biggest on top (bottom up)
       for (i=NUMCORES-1;i>=1;i--)
-      { if (throughput_sort_buffer[i]>(throughput_sort_buffer[i-1])) throughput_sort_buffer[i-1] = throughput_sort_buffer[i]; } 
+      { if (throughput_sort_buffer[i]>(throughput_sort_buffer[i-1])) throughput_sort_buffer[i-1] = throughput_sort_buffer[i]; }
 
       //find core-number according to perf.-value
       for (i=0;i<NUMCORES;i++)
-      { if (throughput[i] == throughput_sort_buffer[0]) break; } //break on first core-number which fits 
-     
+      { if (throughput[i] == throughput_sort_buffer[0]) break; } //break on first core-number which fits
+
       //set up used Cores
-      nCores = i+1;      
+      nCores = i+1;
       //backup in nCores_bench
-      nCores_bench = i+1; 
-                  
+      nCores_bench = i+1;
+
       switch (i+1)
       {
       case 1:
-          mexPrintf("Detected Single-core System, 1 thread prefered\n"); 
+          mexPrintf("Detected Single-core System, 1 thread prefered\n");
           break;
       case 2:
           mexPrintf("Detected Dual-core or Hyperthreading System, 2 threads prefered\n");
@@ -1251,18 +1256,18 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
       case 16:
           mexPrintf("Detected 16 Core system, 16 threads prefered\n");
           break;
-      default: 
+      default:
           mexPrintf("Detected %i-core system, %i threads prefered (?)\n",i+1,i+1);
-      }      
-          
-      
+      }
+
+
       //benchmark perf-per size
       mexPrintf("\nPerformance for various imagesize in Voxel (with potentially %i Cores)\n",nCores);
       mexPrintf("     Voxel | Throughput in kVoxel/s         | Time in mikros  | Malloc time (mikro-sec)\n");
-      mexPrintf("           | Median   | Mean     | Std      |           | Median | mean  | Std  | min  | max  \n"); 
+      mexPrintf("           | Median   | Mean     | Std      |           | Median | mean  | Std  | min  | max  \n");
       mexPrintf("------------------------------------------------------------------------------------------------\n");
       for (i=MIN_VOXEL;i<=(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput);i=i*2)
-      {          
+      {
           for (j=0;j<minAverage;j++)
           {
               do {
@@ -1281,49 +1286,49 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
           //bubblesort (small time top)
           for (k=minAverage-1;k>0;k--)
           {  for (l=minAverage-1;l>0;l--){
-                     if (average_buffer[l]<average_buffer[l-1]) {counter2=average_buffer[l-1]; average_buffer[l-1] = average_buffer[l]; average_buffer[l]=counter2;} 
+                     if (average_buffer[l]<average_buffer[l-1]) {counter2=average_buffer[l-1]; average_buffer[l-1] = average_buffer[l]; average_buffer[l]=counter2;}
                  }
-          }          
+          }
          mittelw=0;
          for  (k=0;k<minAverage;k++)  {mittelw=average_buffer[k]+mittelw;}
          mittelw=(uint64_t) mittelw/minAverage;
-         
+
          stdabw=0;
-         for  (k=0;k<minAverage;k++)        
-         {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);} 
-         stdabw = (uint64_t) sqrt((int64_t) stdabw/minAverage);            
-          
-          #ifdef addsig2vol_debug 
-           for (k=0;k<minAverage;k++)               
+         for  (k=0;k<minAverage;k++)
+         {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);}
+         stdabw = (uint64_t) sqrt((int64_t) stdabw/minAverage);
+
+          #ifdef addsig2vol_debug
+           for (k=0;k<minAverage;k++)
            { mexPrintf("%llu values-range \n",average_buffer[k]);}
-          #endif                   
-          
+          #endif
+
           //minimum selection
           counter2 = (uint64_t) average_buffer[0];	 //assumption for 1 PIXEL! // index 0 = core1; index1 = core 2 etc...(!)
           //median selection
           counter2 = (uint64_t) average_buffer[(uint32_t) ceil(minAverage/2)];
           // mexPrintf("%10luu , %10llu, %10llu \n",TimeCounter, counter, TimeCounter());
           //counter=pow(2,64)-counter;
-          
+
           //mexCallMATLAB(1, &time_bench, 0, NULL, "toc");
           //mexPrintf("%llu ms\n",((TimeCounter()-counter)/1000000));
           mexPrintf("%10i | %8llu | %8llu | %8llu |%8llu ",i,(1000000*(uint64_t)i)/(counter2),(1000000*(uint64_t)i)/(mittelw),((uint64_t)i*1000000)/(stdabw),(uint64_t)(counter2/1000) );
-          
+
           //fix  (UGLY!!!!)
-          nCores=nCores_bench;          
-          
+          nCores=nCores_bench;
+
           //benchmark mem-alloc
           minAverage=100;
-          
+
               for (j=0;j<minAverage;j++)
               {
                   do {
                       mxDestroyArray(image_sum_bench);
-                      
+
                       counter=TimeCounter();
                       setImageDim[0]  = i;
                       setImageDim[1]  = 1;
-                      setImageDim[2]  = 1;                
+                      setImageDim[2]  = 1;
 
                       image_sum_bench  = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
                       mxSetDimensions(image_sum_bench, setImageDim, 3);                   //bsp. 3000x1  -> (3000,1) ,2
@@ -1339,41 +1344,41 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
                   if (average_buffer[l]<average_buffer[l-1]) {counter2=average_buffer[l-1]; average_buffer[l-1] = average_buffer[l]; average_buffer[l]=counter2;}
               }
               }
-              
+
               mittelw=0;
              for  (k=0;k<minAverage;k++)  {mittelw=average_buffer[k]+mittelw;}
              mittelw=(uint64_t) mittelw/minAverage;
 
              stdabw=0;
-             for  (k=0;k<minAverage;k++)        
-             {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);} 
-             stdabw = (uint64_t) sqrt((int64_t) stdabw/minAverage);            
+             for  (k=0;k<minAverage;k++)
+             {if (mittelw>average_buffer[k]) stdabw=stdabw+(mittelw-average_buffer[k])*(mittelw-average_buffer[k]); else stdabw=stdabw+(average_buffer[k]-mittelw)*(average_buffer[k]-mittelw);}
+             stdabw = (uint64_t) sqrt((int64_t) stdabw/minAverage);
 
              //minimum selection
              counter2 = (uint64_t) average_buffer[0];	 //assumption for 1 PIXEL! // index 0 = core1; index1 = core 2 etc...(!)
              //median selection
              counter2 = (uint64_t) average_buffer[(uint32_t) ceil(minAverage/2)];
              mexPrintf("| %8llu | %8llu | %8llu |%8llu |%8llu\n", (uint64_t)counter2/1000,(uint64_t)mittelw/1000,(uint64_t)stdabw/1000,(uint64_t) average_buffer[0]/1000,(uint64_t) average_buffer[minAverage-1]/1000);
-              
-          }     
-                  
-      
+
+          }
+
+
         //check status
-        fpu_check();        
-      
-      
+        fpu_check();
+
+
         //free memory
 		  mxDestroyArray(out_bench);
 		  mxDestroyArray(image_sum_bench);
         //free memory
 		  mxDestroyArray(buffer_bench);
 		  mxDestroyArray(AScan_bench);
-		  mxDestroyArray(time_bench);        
+		  mxDestroyArray(time_bench);
 }
 
 
 uint64_t TimeCounter(void) {
-uint64_t counter;  
+uint64_t counter;
     #ifndef __WIN32__
         #ifdef WIN32
         #define __WIN32__
@@ -1394,79 +1399,76 @@ uint64_t counter;
         #define __WIN32__
         #endif
     #endif
-            
-    #ifdef __WIN32__ //fitting windows64 AND windows32    
+
+    #ifdef __WIN32__ //fitting windows64 AND windows32
     #include <windows.h>
-    //register uint64_t temp; 
+    //register uint64_t temp;
     uint64_t iFreq, iCount;
     QueryPerformanceFrequency((LARGE_INTEGER*)&iFreq);
-    QueryPerformanceCounter((LARGE_INTEGER*)&iCount); 
+    QueryPerformanceCounter((LARGE_INTEGER*)&iCount);
     //counter = (uint64_t) (1000000000*((double)iCount/(double)iFreq)); //f�r nSekunden (balancing der multiplikation)
     counter = (uint64_t) ((1000000000*iCount)/iFreq); //f�r nSekunden (balancing der multiplikation)
-    
-//#ifdef addsig2vol_debug 
-    //mexPrintf("iFreq:%llu, iCount:%llu, Counter:%llu\n",iFreq,iCount,counter); 
-    //#endif
-    #endif   
-    
-   #ifdef __linux__       
-        
-    #include <time.h>
-    #include <unistd.h>
 
-    struct timespec time_str;  
-    struct timespec time_res;    
+//#ifdef addsig2vol_debug
+    //mexPrintf("iFreq:%llu, iCount:%llu, Counter:%llu\n",iFreq,iCount,counter);
+    //#endif
+    #endif
+
+    #ifdef __linux__
+
+    struct timespec time_str;
+    struct timespec time_res;
     clock_gettime(CLOCK_REALTIME, &time_str);
     counter = (uint64_t) time_str.tv_nsec + (uint64_t) (time_str.tv_sec*1000000000);
-    
+
     /*
     clock_gettime(CLOCK_REALTIME, &time_str); clock_getres(CLOCK_REALTIME, &time_res);
-    mexPrintf("CLOCK_REALTIME clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec); 
+    mexPrintf("CLOCK_REALTIME clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
     clock_gettime(CLOCK_MONOTONIC, &time_str); clock_getres(CLOCK_MONOTONIC, &time_res);
-    mexPrintf("CLOCK_MONOTONIC clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec); 
+    mexPrintf("CLOCK_MONOTONIC clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time_str); clock_getres(CLOCK_PROCESS_CPUTIME_ID, &time_res);
-    mexPrintf("CLOCK_PROCESS_CPUTIME_ID clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec); 
+    mexPrintf("CLOCK_PROCESS_CPUTIME_ID clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
     */
       //int clock_getres(CLOCK_REALTIME, struct timespec *res);
     //int clock_gettime(clockid_t clk_id, struct timespec *tp);
-    #endif   
+    #endif
     return counter;
  }
 
 void fpu_check()
 {
-// http://www.christian-seiler.de/projekte/fpmath/ 
+// http://www.christian-seiler.de/projekte/fpmath/
     #ifdef __WIN32__
     //#include <float.h>
     uint32_t control_wordfp=0, status_wordfp=0;
-    
+
     //read out
     control_wordfp = _controlfp(0, 0);//,&control_wordfp, 0);
     control_wordfp = getFPUStateX86();
     //http://software.intel.com/en-us/articles/x87-and-sse-floating-point-assists-in-ia-32-flush-to-zero-ftz-and-denormals-are-zero-daz/
     //DAZ and FTZ in MXCRS
-    //FTZ: The FTZ bit (bit 15)& The underflow exception (bit 11) 
-    //DAZ: DAZ bit (bit 6) 
+    //FTZ: The FTZ bit (bit 15)& The underflow exception (bit 11)
+    //DAZ: DAZ bit (bit 6)
     //control_wordfp = _controlfp( _CW_DEFAULT, 0xfffff);
     //control_wordfp =_controlfp(_DN_FLUSH|32 ,_MCW_DN|32 ); //_controlfp(control_wordfp | 34816, 4294967295);
     //control_wordfp =_controlfp(_PC_64, _MCW_PC); //_PC_24, _PC_53 _PC_64
     //control_wordfp =_controlfp(_RC_NEAR, _MCW_RC); //_RC_UP _RC_CHOP _RC_DOWN _RC_NEAR
- 
-    status_wordfp = _statusfp(); 
+
+    status_wordfp = _statusfp();
     _clearfp();
     #else
     #include <fpu_control.h>
     fpu_control_t control_wordfp=0, fpu_cw=0;
     _FPU_GETCW(control_wordfp);
-    
+
     //Status WORD under linux????
 
-    #endif 
-            
-            
+    #endif
+
+
     mexPrintf("FPU/SSE Control-register(0x%.4x): ", control_wordfp );
     //RC round-control
-     switch ((control_wordfp & __FPU_CW_ROUND_MASK__)>>0)//& 3072) 
+     switch ((control_wordfp & __FPU_CW_ROUND_MASK__)>>0)//& 3072)
     {case __FPU_CW_ROUND_NEAR__:
          mexPrintf("nearest rounding");
          break;
@@ -1483,7 +1485,7 @@ void fpu_check()
     // mexPrintf("%x %x %x",control_wordfp & _MCW_PC, _MCW_PC,_MCW_RC);
 
     //PC Precision-control
-    switch ((control_wordfp & __FPU_CW_PREC_MASK__ )>>0 )//& 768) 
+    switch ((control_wordfp & __FPU_CW_PREC_MASK__ )>>0 )//& 768)
     {case __FPU_CW_PREC_SINGLE__:
          mexPrintf(", internal precision float (32bit)\n");
          break;
@@ -1491,12 +1493,12 @@ void fpu_check()
          mexPrintf(", internal precision double (64bit)\n");
          break;
      case __FPU_CW_PREC_EXTENDED__:
-         mexPrintf(", internal precision extended double (80bit)\n"); 
+         mexPrintf(", internal precision extended double (80bit)\n");
          break;
-     default : 
-         mexPrintf(", internal precision invalid \n"); 
-    }       
-    
+     default :
+         mexPrintf(", internal precision invalid \n");
+    }
+
 #ifdef __WIN32__
     //FPU/SSE status
     mexPrintf("FPU/SSE status (0x%.4x): ", status_wordfp);
@@ -1504,10 +1506,9 @@ void fpu_check()
     if ((status_wordfp & 16)>>4)  mexPrintf("underflow ");
     if ((status_wordfp &  8)>>3)  mexPrintf("overflow ");
     if ((status_wordfp &  4)>>2)  mexPrintf("division-by-zero ");
-    if ((status_wordfp &  2)>>1)  mexPrintf("denormal ");  
+    if ((status_wordfp &  2)>>1)  mexPrintf("denormal ");
     if ((status_wordfp &  1)>>0)  mexPrintf("invalid operation mask ");
-    if ( status_wordfp == 0 )  mexPrintf("OK");   
+    if ( status_wordfp == 0 )  mexPrintf("OK");
     mexPrintf("\n");
     #endif
 }
-
