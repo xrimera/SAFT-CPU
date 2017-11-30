@@ -357,7 +357,7 @@ void mexFunction (int nlhs, mxArray*plhs[],
     n_speed_vec_block= (unsigned int) mwSizePtr[1];//*(int*)(send_vec_ptr + 1);
 
     //soundmap version ?
-mexPrintf("Info: Soundmap versionrrr\n");
+
     if ( ((unsigned int) mwSizePtr[0]==n_X) & ((unsigned int) mwSizePtr[1]==n_Y) & ((unsigned int) mwSizePtr[2]==n_Z | mxGetNumberOfDimensions(speed)==2) )
     { mexPrintf("Info: Soundmap version\n");
     addsig2vol_mode = 2;
@@ -423,40 +423,21 @@ mexPrintf("Info: Soundmap versionrrr\n");
 		AScan_pi = mxGetPi(AScan);
 
 		//anlegen puffer fuer xsum & image
-		if (AScan_pi != NULL)
-		    { //complex
-			out     = mxCreateDoubleMatrix(0, 0, mxCOMPLEX);//out        = mxCreateDoubleMatrix(0, 0, mxCOMPLEX);             //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
-			if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
-            mxSetDimensions(out, setImageDim, mxGetNumberOfElements(IMAGE_XYZ)); // UNSAFE if SCHLAUCHINPUT!!! mxGetNumberOfDimensions(IMAGE_SUM)); //bsp. 3000x1  -> (3000,1) ,2                      //bsp. 3000x1  -> (3000,1) ,2
-			pr = mxMalloc(n_IMAGE * sizeof(double));
-            if (pr==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
-			pi = mxMalloc(n_IMAGE * sizeof(double));
-            if (pi==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
-			mxSetPr(out, pr);
-			mxSetPi(out, pi);
+		if (AScan_pi != NULL) {
+            //complex
+            out = mxCreateNumericArray((mwSize)mxGetNumberOfElements(IMAGE_XYZ), setImageDim, mxDOUBLE_CLASS, mxCOMPLEX);
+            if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
 
-			buffer = mxCreateDoubleMatrix(0, 0, mxCOMPLEX);                         //Sum buffer laenge ascan
-			mxSetDimensions(buffer, setBufferDim, mxGetNumberOfDimensions(AScan));  //bsp. 3000x1  -> (3000,1) ,2
-			pr = mxMalloc(INTERP_RATIO * n_AScan * sizeof(double));
-			pi = mxMalloc(INTERP_RATIO * n_AScan * sizeof(double));
-			mxSetPr(buffer, pr);
-			mxSetPi(buffer, pi);
-		} else { //real
-			out        = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
-			if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
-            mxSetDimensions(out, setImageDim,mxGetNumberOfElements(IMAGE_XYZ)); // UNSAFE if SCHLAUCHINPUT!!!mxGetNumberOfDimensions(IMAGE_SUM)); //bsp. 3000x1  -> (3000,1) ,2
-			pr = mxMalloc(n_IMAGE * sizeof(double));
-            if (pr==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
-			mxSetPr(out, pr);
-			mxSetPi(out, NULL);
-
-			buffer = mxCreateDoubleMatrix(0, 0, mxREAL);              //Sum buffer laenge ascan
+            buffer = mxCreateNumericArray((mwSize)mxGetNumberOfDimensions(AScan), setBufferDim, mxDOUBLE_CLASS, mxCOMPLEX); //Sum buffer laenge ascan //bsp. 3000x1  -> (3000,1) ,2
             if (buffer==NULL) {mexPrintf("buffer alloc failed!\n");return;}
-			mxSetDimensions(buffer, setBufferDim, mxGetNumberOfDimensions(AScan));  //bsp. 3000x1  -> (3000,1) ,2
-			pr = mxMalloc(INTERP_RATIO * n_AScan * sizeof(double));
-            if (pr==NULL) {mexPrintf("buffer alloc failed!\n");return;}
-			mxSetPr(buffer, pr);
-			mxSetPi(buffer, NULL);
+
+		} else {
+            //real
+            out = mxCreateNumericArray((mwSize)mxGetNumberOfElements(IMAGE_XYZ), setImageDim, mxDOUBLE_CLASS, mxREAL);
+            if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
+
+            buffer = mxCreateNumericArray((mwSize)mxGetNumberOfDimensions(AScan), setBufferDim, mxDOUBLE_CLASS, mxREAL); //Sum buffer laenge ascan //bsp. 3000x1  -> (3000,1) ,2
+            if (buffer==NULL) {mexPrintf("buffer alloc failed!\n");return;}
 
 		}
 	    #ifdef addsig2vol_debug
