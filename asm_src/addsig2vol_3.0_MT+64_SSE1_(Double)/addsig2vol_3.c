@@ -35,6 +35,7 @@
 #include "mex.h"
 #include <math.h>
 #include <stdio.h>
+#include "as2v_array.h"
 
 #ifndef _PORTABLEFPU_H_INCLUDED
 #include "portableFPU.h"
@@ -310,6 +311,19 @@ void mexFunction (int nlhs, mxArray*plhs[],
      fpu_check();
 	 #endif
 
+     /////////////////////////////////////// set threadcount to 4
+     nCores_bench = 4;
+
+     //fill
+     for (i=NUMCORES;i>0;i--)
+     { throughput[i-1]=1;
+       latency[i-1]=10000000;
+     }
+     throughput[nCores_bench-1]=299;
+     latency[nCores_bench-1]=1;
+     ///////////////////////////////////////
+
+
 	 ////benchmark of performance, selecting number of threads
     if (nCores_bench==-1) as2v_bench(&throughput[0], &latency[0]);
 
@@ -453,6 +467,26 @@ void mexFunction (int nlhs, mxArray*plhs[],
 		////first Ascan
 		// combined REAL & COMPLEX VERSION
 
+        mkdir("data", 0777);
+        as2v_doubleArray AScan_real_array = as2v_boxDoubleArray(mxGetPr(AScan), n_AScan, n_AScan_block, 1);
+        saveDoubleArray(&AScan_real_array, "data/AScan");
+
+        as2v_floatArray pix_vectz_array = as2v_boxFloatArray((float*)mxGetPr(pix_vect), 3, 1, 1);
+        saveFloatArray(&pix_vectz_array, "data/pix");
+
+        as2v_floatArray rec_posz_array = as2v_boxFloatArray((float*)mxGetPr(rec_pos), 3, n_AScan_block, 1);
+        saveFloatArray(&rec_posz_array, "data/rec");
+
+        as2v_floatArray send_posz_array = as2v_boxFloatArray((float*)mxGetPr(send_pos), 3, n_AScan_block, 1);
+        saveFloatArray(&send_posz_array, "data/send");
+
+        as2v_doubleArray IMAGE_XYZ_real_array = as2v_boxDoubleArray(mxGetPr(IMAGE_SUM), n_X, n_Y, n_Z);
+        saveDoubleArray(&IMAGE_XYZ_real_array, "data/IMAGE_SUM");
+
+        as2v_floatArray speed_real_array = as2v_boxFloatArray((float*)mxGetPr(speed), 1, 1, 1);
+        saveFloatArray(&speed_real_array, "data/speed");
+
+
 		//no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
 		as2v_MT(mxGetPr(out), mxGetPr(AScan), n_AScan, mxGetPr(buffer),
 			     (float*)mxGetPr(pix_vect), n_X, (float*)mxGetPr(rec_pos), (float*)mxGetPr(send_pos),
@@ -461,6 +495,9 @@ void mexFunction (int nlhs, mxArray*plhs[],
 				     buffer), mxGetPi(
 				     out), n_Y, n_Z, mxGetPr(IMAGE_SUM), mxGetPi(
 				     IMAGE_SUM));
+
+         as2v_doubleArray out_array1 = as2v_boxDoubleArray(mxGetPr(out), n_X, n_Y, n_Z);
+         saveDoubleArray(&out_array1, "data/out1");
 
 		//loop over ascans > 1
 		for (i = 2; i <= n_AScan_block; i++) {
@@ -513,6 +550,15 @@ void mexFunction (int nlhs, mxArray*plhs[],
 
             }
 		   out2 = buffer;
+
+           as2v_doubleArray buffer_array = as2v_boxDoubleArray(mxGetPr(buffer), n_AScan * INTERP_RATIO, 1, 1);
+           saveDoubleArray(&buffer_array, "data/buffer");
+
+           as2v_doubleArray out_array = as2v_boxDoubleArray(mxGetPr(out), n_X, n_Y, n_Z);
+           saveDoubleArray(&out_array, "data/out");
+
+
+
        //mxDestroyArray(buffer);
 		   break;
 
@@ -546,6 +592,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     unsigned int n_Zz_num = 0;
     //unsigned int nCores = NUMCORES;
     unsigned int i = 0;
+
+    static unsigned int count = 0;
 
 
     ////////Z-Layer multithreading, use multi-threading if enough Z-layers imaged
@@ -690,6 +738,15 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
       xsum_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
       #endif
 
+
+      ///// save buffers
+      mkdir("data/buffers", 0777);
+      as2v_doubleArray bufferz_array = as2v_boxDoubleArray(threadArg[nCores-1].bufferz, INTERP_RATIO * threadArg[nCores-1].n_AScanz, 1, 1);
+      char p[50];
+      sprintf(p, "data/buffers/buffer_%d", count);
+      saveDoubleArray(&bufferz_array, p);
+      /////////////////////////////////////////////////
+
       ////release threads
       for (i=0;i<nCores-1;i++)
 	  {
@@ -716,9 +773,18 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
               #endif
         }
 
+    ///// save images
+    mkdir("data/images", 0777);
+    as2v_doubleArray IMAGE_SUMz_array = as2v_boxDoubleArray(IMAGE_SUMz, n_Xz, n_Yz, n_Zz);
+    char p2[50];
+    sprintf(p2, "data/images/image_%d", count);
+    saveDoubleArray(&IMAGE_SUMz_array, p2);
+    /////////////////////////////////////////////////
+
       //set because because potentially reduced by imagesize
       //if (nCores_bench >0) nCores = nCores_bench;
 
+      count++;
 
 }
 
