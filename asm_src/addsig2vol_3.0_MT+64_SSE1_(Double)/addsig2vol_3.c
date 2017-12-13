@@ -773,6 +773,12 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
               #endif
         }
 
+        
+        mkdir("data/outs", 0777);
+        as2v_doubleArray outs_array = as2v_boxDoubleArray(outz, n_Xz, n_Yz, n_Zz);
+        char p3[50];
+        sprintf(p3, "data/outs/out_%d", count);
+        saveDoubleArray(&outs_array, p3);
     ///// save images
     mkdir("data/images", 0777);
     as2v_doubleArray IMAGE_SUMz_array = as2v_boxDoubleArray(IMAGE_SUMz, n_Xz, n_Yz, n_Zz);
