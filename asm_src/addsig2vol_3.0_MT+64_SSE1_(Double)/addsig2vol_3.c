@@ -75,7 +75,8 @@ __declspec(dllimport) __imp_pthread_create();
 #define p_threads
 
 //enable/disable C-CODE version (disabled is Asm-code)
-#undef C_CODE
+//#undef C_CODE
+#define C_CODE
 
 #ifdef p_threads
 #include "pthread.h"
@@ -113,6 +114,7 @@ static int64_t latency[NUMCORES]={0}; //uint64_t nSec
 static int64_t throughput[NUMCORES]={0}; //uint64 MVoxel/s
 static uint32_t nCores_bench = -1;
 static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, benchmark etc
+
 
 //TEST-CASE 0
 //tic; x=100; image_1=addsig2vol_2(rand([3000 1]),single(ones(3,1)),single(ones(3,1)),single(ones(3,1)),single(ones(1,1)),single(ones(1,1)),single(ones(3,1)),uint32([x,x,x]),zeros([x,x,x]),2); toc, j=reshape(image_1,[x x x]); imagesc(j(:,:,1));
@@ -176,6 +178,10 @@ static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, b
         unsigned int n_Yz;
         unsigned int n_Zz;
         } Addsig2vol_param;*/
+
+
+// Dirty fix to pass parameters into thread deployment
+static Addsig2vol_param* threadDeployedParam = NULL;
 
 //CPUcount
 uint64_t CPUCount(void);
@@ -501,6 +507,7 @@ void mexFunction (int nlhs, mxArray*plhs[],
 
 		//loop over ascans > 1
 		for (i = 2; i <= n_AScan_block; i++) {
+            mexPrintf("algo loop %i\n", i);
 			//check for complex ascan only increase if available because NULL-Pointer +something -> not anymore a nullpointer!
 			if (AScan_pi != NULL)	AScan_pi = mxGetPi(AScan) + (n_AScan * (i - 1)); //set to next value
             if (1<n_rec_vec_block)  rec_vec_ptr  = (float*)mxGetPr(rec_pos)  + (3 * sizeof(float) * (i - 1)); else  rec_vec_ptr  = (float*)mxGetPr(rec_pos);
@@ -750,8 +757,9 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
       ////release threads
       for (i=0;i<nCores-1;i++)
 	  {
-      #ifdef p_threads
-      rc = pthread_create( &(mythread[i]), NULL, thread_function, (void*)&(threadArg[i]));
+          threadDeployedParam = &threadArg[i];
+          #ifdef p_threads
+          rc = pthread_create( &(mythread[i]), NULL, thread_function, NULL);
       if (rc) { mexPrintf("ERROR: return code from pthread_create() is %d\n", rc); return;}
       #endif
       }
@@ -773,7 +781,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
               #endif
         }
 
-        
+
         mkdir("data/outs", 0777);
         as2v_doubleArray outs_array = as2v_boxDoubleArray(outz, n_Xz, n_Yz, n_Zz);
         char p3[50];
@@ -861,8 +869,9 @@ for (z=1; z<=n_Zz; z++)
 				index = (unsigned int) floor( ( sqrt(dist_sv[1]+ dist_sv[2] + (dist_sv[0]*dist_sv[0])) + sqrt(dist_rv[1]+ dist_rv[2]+ (dist_rv[0]*dist_rv[0])) ) * factor);
 				    //mexPrintf("index:  %i\n\n", index);
 				    //outz[image_index] = (double)index;
-				if ((index >= n_AScanz*INTERP_RATIO) | (index < 0))
+				if ((index >= n_AScanz*INTERP_RATIO) | (index < 0)){
 					outz[image_index] = IMAGE_SUMz[image_index]; //nix addiert
+                }
 				else
 					outz[image_index] = IMAGE_SUMz[image_index] + bufferz[index];//AScanz[index];
 
@@ -979,9 +988,12 @@ mxFree(sec_buffer);
 
 ///////////////////////////////////////////////
 
- void *thread_function(void *arg)
+ void *thread_function(void *argument)
 {
-    Addsig2vol_param* tt = (Addsig2vol_param*) arg;
+    //// irredeemable!
+    //https://wiki.sei.cmu.edu/confluence/display/c/EXP36-C.+Do+not+cast+pointers+into+more+strictly+aligned+pointer+types
+    //Addsig2vol_param* tt = (Addsig2vol_param*) arg;
+    Addsig2vol_param* arg = threadDeployedParam;
 
     //imaging call with four times pointer to struct
     #ifdef C_CODE
