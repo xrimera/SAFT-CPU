@@ -233,7 +233,39 @@ void as2v_setUpstreamCallback(void (*callback)(cArray*)) {
 
 void resetJobList(unsigned int x, unsigned int y, unsigned int z)
 {
-        free(threadArg);
+    free(threadArg);
+    // // Definition nach Cache
+    // float cacheFracture = 2;
+    // unsigned int imagePrecision = 8;
+    // //Anzahl doubles per thread
+    // float workSegment = (float) L3CACHE_SIZE/(cacheFracture*imagePrecision*nCores); //[Doubles per thread]
+    // //Anzahl der jobs mindestens, um L3 Größe einzuhalten (Anzahl der Stücke, die mind. geschnitten werden müssen)
+    // float workPackages = (float)x*y*z/workSegment;
+    //
+    // // Check that there is at least one package for each thread
+    // if(workPackages < nCores) {
+    //     print("");
+    //     workPackages = nCores;
+    // }
+    // //berechne Elemente für jedes package
+    // float imageFraction = 1/workPackages;
+    // unsigned int elementsPerPackage = (unsigned int) x*y*z*imageFraction;
+    // // TODO Hier kann man Größe auch forcen für tests
+    // if (elementsPerPackage < 4) elementsPerPackage = 4;
+    //
+    // // force layout: Für Interlacing muss hier einfach weiter geteilt werden, s.d. fullZ und fullY 0 werden, fullX = 0;
+    // unsigned int posZ = floor((float)elementsPerPackage/(x*y));
+    // unsigned int posY = floor((float)(elementsPerPackage-x*y*posZ)/x);
+    // unsigned int posX = elementsPerPackage-posZ*y*z-posY*x;
+    //
+    // //calc total jobs necessary ( upper bound)
+    // jobs = ceil(z/(posZ+1)) * ceil(y/(posY+1)) * ceil(x/(posX+1));
+    //
+    // print("elementsPerPackage: %i, posZ, posY, posX: %i %i %i, jobs (upper bound): %i \n", elementsPerPackage, posZ, posY, posX, jobs);
+    //
+
+
+
         float cachefracture = 1.5;
         unsigned int precision = 8;
         //Anzahl doubles per thread
@@ -272,7 +304,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     #endif
     resetJobList(n_Xz, n_Yz, n_Zz);
     //NOTE: This must be set on 0, otherwise results doesnt match
-    float pix_vecz_buffer[10000][3]= {0};
+    float pix_vecz_buffer[100000][3]= {0};
     unsigned int n_Zz_start = 0;
     unsigned int n_Zz_num = 0;
     //unsigned int nCores = NUMCORES;
@@ -289,9 +321,9 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         #endif
 
         //Generate parameter structs for Z-multithreading
-        for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
+        for (i=0;i<jobs;i++) //WITH mainthread! (=)!
         {
-            n_Zz_num  = (unsigned int)(floor(n_Zz/nCores));
+            n_Zz_num  = jobdimsize;
             n_Zz_start = n_Zz_num*i*n_Xz*n_Yz;
 
             //set picture startpoint
@@ -301,9 +333,9 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
 
             //    print("thread %i: pixX, pixY, pixZ: %f %f %f\n", i, pix_vecz_buffer[i][0], pix_vecz_buffer[i][1], pix_vecz_buffer[i][2]);
 
-            if (i==nCores-1)
+            if (i==jobs-1)
             {      //compensated number for FLOOR/CEIL rounding probs
-                n_Zz_num = (unsigned int)(n_Zz-floor(n_Zz/nCores)*(nCores-1));
+                n_Zz_num = n_Zz - i*jobdimsize;
             }
 
 
@@ -432,7 +464,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     #endif
     nextJobWaiting = 0;
     ////release threads
-    for (i=0;i<nCores-1;i++)
+    for (i=0;i<nCores;i++)
     {
 
         #ifdef p_threads
@@ -443,17 +475,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     // AT THIS POINT IMAGE_SUM_1 not OUT_0 anymore (from 0 t0 8?)
     //-> Because of threading! Not all finish the same time
 
-    //imaging-call of last part (in the case of NUMCORE=1 only call)
-    #ifdef C_CODE
-    as2v_c(&(threadArg[nCores-1]),&(threadArg[nCores-1]), &(threadArg[nCores-1]), &(threadArg[nCores-1]));
-    #else
-    if (addsig2vol_mode==0) as2v_complex(&(threadArg[nCores-1]),&(threadArg[nCores-1]), &(threadArg[nCores-1]), &(threadArg[nCores-1]));
-    if (addsig2vol_mode==2) as2v_complex_sm(&(threadArg[nCores-1]),&(threadArg[nCores-1]), &(threadArg[nCores-1]), &(threadArg[nCores-1]));
-    #endif
-
-
     //catches threads again
-    for (i=0;i<nCores-1;i++)
+    for (i=0;i<nCores;i++)
     {
         #ifdef p_threads
         rc = pthread_join ( mythread[i], NULL );
@@ -664,7 +687,7 @@ free(sec_buffer);
     //Addsig2vol_param* arg = (Addsig2vol_param*) argument;
     while(1){
          pthread_mutex_lock(&MTlock);
-         if(nextJobWaiting >= nCores-1){
+         if(nextJobWaiting >= jobs){
              pthread_mutex_unlock(&MTlock);
              return NULL;
          }
