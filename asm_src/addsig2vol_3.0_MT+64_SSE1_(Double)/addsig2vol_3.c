@@ -1,27 +1,9 @@
-    #ifndef __WIN32__
-    #ifdef WIN32
-    #define __WIN32__
-    #endif
-    #ifdef _WIN32
-    #define __WIN32__
-    #endif
-    #ifdef __WIN32
-    #define __WIN32__
-    #endif
-    #ifdef _WIN64
-    #define __WIN32__
-    #endif
-    #ifdef WIN64
-    #define __WIN32__
-    #endif
-    #ifdef _WINDOWS
-    #define __WIN32__
-    #endif
-#endif
+#include "addsig2vol_3.h"
 
 #ifdef __WIN32__
     #include <windows.h>
     #include <float.h>
+    #include <stdlib.h>
 #else
     #define _POSIX_C_SOURCE 199309L
     #define _POSIX_TIMERS 1
@@ -30,11 +12,12 @@
 #ifdef __linux__
     #include <time.h>
     #include <unistd.h>
+    #include <stdlib.h>
+    #include <stdarg.h>
 #endif
 
-#include "mex.h"
+//#include "mex.h"
 #include <math.h>
-#include <stdio.h>
 
 #ifndef _PORTABLEFPU_H_INCLUDED
 #include "portableFPU.h"
@@ -43,6 +26,7 @@
 #ifndef _PSTDINT_H_INCLUDED
 #include "pstdint_new.h"
 #endif
+
 
 
 //extern __declspec(dllimport) int _imp_pthread_join();
@@ -72,13 +56,23 @@ __declspec(dllimport) __imp_pthread_create();
 
 // enable/disable pthreads
 #define p_threads
+//#undef p_threads
+
+// enable/disable creating dataset
+#define SAVEDATA
+#undef SAVEDATA
+
+#define addsig2vol_3_MUTED
+#undef addsig2vol_3_MUTED
 
 //enable/disable C-CODE version (disabled is Asm-code)
-#undef C_CODE
+//#define C_CODE
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//#undef C_CODE
 
 #ifdef p_threads
 #include "pthread.h"
-#define NUMCORES 4 //32 //potential maximum value for init structs etc.
+#define NUMCORES 16 //32 //potential maximum value for init structs etc.
 #else
 #define NUMCORES 1
 #endif
@@ -89,29 +83,29 @@ __declspec(dllimport) __imp_pthread_create();
 //define min-Voxel Number for X (parallel voxels in X_pipe; for 64bit code = 4voxel, for 32 bit = 2voxel)
 #define MIN_VOXEL 4
 
-//define matlab in and out
-#define out       plhs[0]
-#define out2      plhs[1]
-
-#define AScan     prhs[0]
-#define pix_vect  prhs[1]
-#define rec_pos   prhs[2]
-#define send_pos  prhs[3]
-#define speed     prhs[4]
-#define res       prhs[5]
-#define timeint   prhs[6]
-#define IMAGE_XYZ prhs[7]
-#define IMAGE_SUM prhs[8]
-
 //global variable
 unsigned int addsig2vol_mode=0; //mode = single ascan, constant speed, 1=blocked, constant speed, 2= unblocked with soundmap
-
 
 //for MT handling
 static int64_t latency[NUMCORES]={0}; //uint64_t nSec
 static int64_t throughput[NUMCORES]={0}; //uint64 MVoxel/s
 static uint32_t nCores_bench = -1;
 static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, benchmark etc
+
+static double* out_real = NULL;
+static double* out_complex = NULL;
+static double* buffer_real = NULL;
+static double* buffer_complex = NULL;
+
+static cArrayDouble cAout_real;
+static cArrayDouble cAout_complex;
+static cArrayDouble cAbuffer_real;
+static cArrayDouble cAbuffer_complex;
+
+#ifdef SAVEDATA
+    static unsigned int count = 0;
+#endif
+
 
 //TEST-CASE 0
 //tic; x=100; image_1=addsig2vol_2(rand([3000 1]),single(ones(3,1)),single(ones(3,1)),single(ones(3,1)),single(ones(1,1)),single(ones(1,1)),single(ones(3,1)),uint32([x,x,x]),zeros([x,x,x]),2); toc, j=reshape(image_1,[x x x]); imagesc(j(:,:,1));
@@ -176,6 +170,15 @@ static uint32_t nCores = NUMCORES; //used value might be reduced by imagesize, b
         unsigned int n_Zz;
         } Addsig2vol_param;*/
 
+
+        static unsigned int L3CACHE_SIZE = 307200000000;
+        static unsigned int L3CACHE_LINESIZE = 64;
+        static unsigned int jobs = 0;
+        static unsigned int nextJobWaiting = 0;
+        static unsigned int jobdimsize;
+pthread_mutex_t MTlock;
+Addsig2vol_param* threadArg = NULL; //numCPU -1 BUT for NUM 1
+
 //CPUcount
 uint64_t CPUCount(void);
 uint64_t TimeCounter(void);
@@ -183,19 +186,12 @@ uint64_t TimeCounter(void);
 //fpu
 void fpu_check(void);
 
-//ellipsoide backprojections
-void as2v_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
-void as2v_complex_sm(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
-void as2v_c(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
 void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, float*pix_vectz,
 		    unsigned int n_Xz, float*rec_posz, float*send_posz, float*speedz, float*resz,
 		    float*timeintz, double*AScan_complexz,
 		    double*buffer_complexz, double*out_complexz, unsigned int n_Yz, unsigned int n_Zz,
 		    double* IMAGE_SUMz, double* IMAGE_SUM_complexz);
 
-//Xsum and interpol
-void xsum_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
-void xsum_c(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
 
 //thread function
 void *thread_function(void *arg);
@@ -203,603 +199,358 @@ void *thread_function(void *arg);
 //thread benchmark
 void as2v_bench( uint64_t lat[],  uint64_t through[]);
 
-///////////////////End declarations
+//ellipsoide backprojection
+void as2v_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
+void as2v_complex_sm(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
+void as2v_c(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
+//Xsum and interpol
+void xsum_complex(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
+void xsum_c(Addsig2vol_param *, Addsig2vol_param*, Addsig2vol_param*, Addsig2vol_param*);
+void resetJobList(unsigned int x, unsigned int y, unsigned int z);
+
+//Empty functions
+void mutePrint(char* string, ...){}
+void muteUpstream(cArray* array){}
+
+#ifdef addsig2vol_3_MUTED
+    static void (*print)(char*, ...) = &mutePrint;
+#else
+    static void (*print)(char*, ...) = &printf;
+#endif
+
+static void (*upStreamCArray)(cArray*) = &muteUpstream;
+
+//////////////////////////////////////////////////////////////End declarations
 
 
-
-void mexFunction (int nlhs, mxArray*plhs[],
-		  int nrhs, const mxArray*prhs[]) {
-
-
-	//int width_test;
-  const mwSize* mwSizePtr;
-	unsigned int i;
-	unsigned int n_AScan;
-	unsigned int n_AScan_block;
-	double *AScan_pi;
-
-	float *rec_vec_ptr=NULL;
-    float *send_vec_ptr=NULL;
-    float *speed_vec_ptr=NULL;
-	unsigned int n_rec_vec_block;
-	unsigned int n_send_vec_block;
-  	unsigned int n_speed_vec_block;
-	unsigned int n_X=1;
-	unsigned int n_Y=1;
-	unsigned int n_Z=1;
-	unsigned int n_IMAGE=0;
-	//int*IMAGE_ptr;
-	int*BUFFER_ptr;
-	mwSize setImageDim[3]={0};
-	//mwSize setBufferDim[2];
-    mwSize setBufferDim[2]={0};
-
-	double*pr;
-	double*pi;
-
-	mxArray *buffer;
-
-//     mxArray* ascan_output_buffer;
-//     mxArray* recpos_output_buffer;
-//     mxArray* recpos_org = rec_pos;
-	if (nlhs > 2) mexErrMsgTxt("Too many output arguments.");
-
-	switch (nrhs) {
-	default:
-		mexErrMsgTxt("Incorrect number of arguments.\n");
-		break;
-	case 0:
-		mexPrintf("\naddSig2Vol_2 SSE1 Assembler Optimized 64bit LINUX&Windows v3.1 (Multiple Rec-AScan Vers.)\n\n Calculate the ellip. backprojection.\nUses SSE.\n\n#define out       plhs[0] (Double(1:end))\n#define out2      plhs[1] DEBUG (Double(1:end))\n#define AScan     prhs[0] (Double(NxM))\n#define pix_vect  prhs[1] (Single(1:3))\n#define rec_pos   prhs[2] (Single(1:3xM) or Single(1:3x1))\n#define send_pos  prhs[3] (Single(1:3xM) or Single(1:3x1))\n#define speed     prhs[4] (Single (1x1 or 1xM))\n#define res       prhs[5] (Single)\n#define timeint   prhs[6] (Single)\n#define IMAGE_XYZ prhs[7] (UINT32(1:3))\n#define IMAGE_SUM prhs[8] (Double(1:end))\nFeatures: Win&Linux, 32&64bit version, SSE1-Assembler&C-Implementation, Multithreaded by PosixThreads (under windows pthreadsVC2.dll might be needed)\n\t %s. M.Zapf KIT-IPE\n\n",__DATE__);
-
-		//benchmark
-		as2v_bench(&throughput[0], &latency[0]);
-		break;
-
-    case 1:
-        if (((int)*((double*)mxGetPr(prhs[0]))<=NUMCORES) & ((int)*((double*)mxGetPr(prhs[0]))>=1))
-        {
-            mexPrintf("Clear Benchmark results, manual set used Cores to %i\n", (int)*((double*)mxGetPr(prhs[0])));
-            nCores_bench = (uint32_t) ceil(*((double*)mxGetPr(prhs[0])));
-
-            //fill
-            for (i=NUMCORES;i>0;i--)
-            { throughput[i-1]=1;
-              latency[i-1]=10000000;
-            }
-            throughput[nCores_bench-1]=299;
-            latency[nCores_bench-1]=1;
-        }
-		break;
-	case 9:
-
-    //init variables
-		//IMAGE_ptr       = *(uint32_t*) mxGetPr(IMAGE_XYZ);
-		n_X              = *((int*) mxGetPr(IMAGE_XYZ));//*IMAGE_ptr;
-		n_Y              = *((int*) mxGetPr(IMAGE_XYZ)+1);//*(IMAGE_ptr + 1);
-
-		//% workaround for matlab behaviour for size(IMAGE(1 x1x1))->reduced to 1 x1 (some kind of squeeze)
-		if (mxGetNumberOfElements(IMAGE_XYZ) < 3)
-			n_Z = 1;
-		else
-			n_Z  = *(((int*) mxGetPr(IMAGE_XYZ)+2));//*(IMAGE_ptr + 2);
-
-    	//check if X_Dim >= MIN_VOXEL
-		if (n_X < MIN_VOXEL)
-		{
-		out     = mxCreateDoubleMatrix(0, 0, mxCOMPLEX); //out  == empty
-	  mexPrintf("Error: X-Dim has to be at least %d (X is %u, Y is %u, Z %u). Use Y-dim for such small sizes.\n",MIN_VOXEL,n_X,n_Y,n_Z);
-	  return;
-	  }
-    //number of voxel
-		n_IMAGE   = n_X * n_Y * n_Z;
-
-		//check code if parameter are coherent, if not exit
-	  if (mxGetNumberOfElements(IMAGE_SUM)!=n_IMAGE)
-	  {
-	  out     = mxCreateDoubleMatrix(0, 0, mxCOMPLEX); //out  == empty
-	  mexPrintf("Error: Size mismatch of [X Y Z] and size of image, break\n");
-	  return;
-	  }
-	    #ifdef addsig2vol_debug
-		mexPrintf("mxGetNumberOfElements(IMAGE_SUM):  %i\n", mxGetNumberOfElements(IMAGE_SUM));
-		mexPrintf("n_IMAGE:  %i\n", nCores_bench);
-		#endif
-
-	 #ifdef addsig2vol_debug
-    //fpu_status
-     fpu_check();
-	 #endif
-
-	 ////benchmark of performance, selecting number of threads
-    if (nCores_bench==-1) as2v_bench(&throughput[0], &latency[0]);
-
-    //select if use or not use multithreading
-     #ifdef addsig2vol_debug
-      mexPrintf("selectedCore perf: %f , %f\n",((double)n_IMAGE/((double)throughput[nCores_bench-1] * 1000000))+((double)latency[nCores_bench-1]/1000000000),(((double)n_IMAGE/((double)throughput[0]*1000000))+((double)latency[0]/1000000000)));
-      mexPrintf("nimage %i, throughput: %f , latency %f, %f, %f\n",n_IMAGE, (double)throughput[nCores_bench-1],(double)latency[nCores_bench-1],(double)throughput[0],(double)latency[0]);
-     #endif
-
-    if ( ( ((double)n_IMAGE/((double)throughput[nCores_bench-1] *1000000))+((double)latency[nCores_bench-1]/1000000000)) <= (((double)n_IMAGE/((double)throughput[0] *1000000))+((double)latency[0]/1000000000)))
-         {  nCores = nCores_bench;}
-    else {
-      #ifdef addsig2vol_debug
-      mexPrintf("Overhead to big, switch to single thread.\n");
-      #endif
-      nCores = 1;}
-
-    #ifdef addsig2vol_debug
-		mexPrintf("selectedNumCores:  %i\n", nCores);
-		mexPrintf("savedNumCORE:  %i\n", nCores_bench);
-		mexPrintf("perf_MT:  %e\n", ( (throughput[nCores_bench] * n_IMAGE)+latency[nCores_bench]));
-		mexPrintf("perf_single:  %e\n", ((throughput[1]*n_IMAGE)+latency[1]));
-	#endif
-
-
-	  //////schlauchimage code (old)
-		//setImageDim[0]  = n_IMAGE;
-		//setImageDim[1]  = 1;        //z.b: 400000x1
-
-		//////NOT Schlauchimage Code
-		setImageDim[0]  = n_X;
-		setImageDim[1]  = n_Y;
-		setImageDim[2]  = n_Z;
-
-    ////check for BLOCKED/UNBlocked Parameters
-		BUFFER_ptr      = (mwSize*) mxGetDimensions(AScan);
-		n_AScan         = (*BUFFER_ptr);        //gesamtanzahl elemente IN EINEM ASCAN!!!
-		n_AScan_block   = *(BUFFER_ptr + 1);    //2 dim %number of parallel
-
-    mwSizePtr       = mxGetDimensions(rec_pos); //dimension of Rec-vec
-    n_rec_vec_block = (unsigned int) mwSizePtr[1];//*(int*)(mwPtr + 1); second DIM
-    mwSizePtr       = mxGetDimensions(send_pos); //dimension of send-vec
-    n_send_vec_block= (unsigned int) mwSizePtr[1];//*(int*)(send_vec_ptr + 1);
-    mwSizePtr       = mxGetDimensions(speed); //dimension of send-vec
-    n_speed_vec_block= (unsigned int) mwSizePtr[1];//*(int*)(send_vec_ptr + 1);
-
-    //soundmap version ?
-
-    if ( ((unsigned int) mwSizePtr[0]==n_X) & ((unsigned int) mwSizePtr[1]==n_Y) & ((unsigned int) mwSizePtr[2]==n_Z | mxGetNumberOfDimensions(speed)==2) )
-    { mexPrintf("Info: Soundmap version\n");
-    addsig2vol_mode = 2;
-    }
-    else{ //not soundmapversion; blocked version?
-
-        if ( ((*(unsigned int*)mxGetDimensions(rec_pos))!=3) | ((*(unsigned int*)mxGetDimensions(send_pos))!=3)) //check first dimension
-        {
-        #ifdef addsig2vol_debug
-        mexPrintf("Dim1 send_vec: %d, Dim1 rec_vec: %d",*(int*)rec_vec_ptr,*(int*)send_vec_ptr);
-        mexPrintf("ascan_block: %d, blocksize rec_vec: %d, blocksize send_vec: %d",n_AScan_block,n_rec_vec_block,n_send_vec_block);
-         #endif
-        out     = mxCreateDoubleMatrix(0, 0, mxCOMPLEX); //out  == empty
-        mexPrintf("Error: 3-d vectors needed for emitter & receiver positions or transposed blocked pos (1x3 instead of 3x1), break\n");
-        return;}
-
-
-         #ifdef addsig2vol_debug
-            mexPrintf("nascan: %d,ascan_block: %d, blocksize rec_vec: %d, blocksize send_vec: %d",n_AScan,n_AScan_block,n_rec_vec_block,n_send_vec_block);
-         #endif
-
-         if (!( (((n_AScan_block == n_rec_vec_block) & (n_AScan_block == n_send_vec_block)) | ((1 == n_rec_vec_block) & (n_AScan_block == n_send_vec_block)) | ((n_AScan_block == n_rec_vec_block) & (1 == n_send_vec_block))) & ((n_AScan_block == n_speed_vec_block) | (1 == n_speed_vec_block)) ))
-          {out     = mxCreateDoubleMatrix(0, 0, mxCOMPLEX); //out  == empty
-          mexPrintf("Error: Blocked sizes parameter mismatch. Size(AScan,2) has to be size(rec_vec,2) and/or size(send_vec,2), n_rec_vec_block:%i n_send_vec_block:%i n_speed_vec_block:%i break\n",n_rec_vec_block, n_send_vec_block, n_speed_vec_block);
-          return;}
-
-
-         if (!(((mxGetPi(AScan)==NULL) & (mxGetPi(IMAGE_SUM)==NULL)) | ((mxGetPi(AScan)!=NULL) & (mxGetPi(IMAGE_SUM)!=NULL))))
-         {mexPrintf("Error: Mismatch complex/real AScan vs complex/real sum image, break\n");
-          return;
-
-          //if here blocked mode successful initalized!
-          addsig2vol_mode = 1;
-        }
-         else
-             //normal version
-              addsig2vol_mode = 0;
-    }
-		setBufferDim[0] = (*BUFFER_ptr) * INTERP_RATIO;
-		setBufferDim[1] = 1;   //z.b: 400000x1
-
-        #ifdef addsig2vol_debug
-        mexPrintf("(*BUFFER_ptr) :  %i\n", (*BUFFER_ptr));
-		mexPrintf("mxGetNumberOfElements(IMAGE_XYZ):  %i\n",mxGetNumberOfElements(IMAGE_XYZ));
-		#endif
-
-		//DEBUG
-		//if (n_AScan<(2*wid+2)) mexErrMsgTxt("1. Array not 2 times +2 greater value 3 ");
-		/*mexPrintf("n_AScan :  %i\n\n", n_AScan );
-		mexPrintf("n_AScan_block :  %i\n\n", n_AScan_block );
-		mexPrintf("n_Z:  %i\n\n", n_Z);
-		mexPrintf("n_Y :  %i\n\n", n_Y);
-		mexPrintf("n_X :  %i\n\n", n_X);
-		mexPrintf("n_IMAGE :  %i\n\n", n_IMAGE);
-		mexPrintf("ewcpos:  %f\n\n", (float*)mxGetPr(rec_pos));
-		mexPrintf("sendpos:  %f\n\n", (float*)mxGetPr(send_pos));
-		mexPrintf("pix_vectz :  %f\n\n",(float*)mxGetPr(pix_vect));
-		mexCallMATLAB(0, NULL, 1, &send_pos, "disp");*/
-//         ascan_output_buffer = mxCreateDoubleMatrix(3000,1,mxREAL);
-//         recpos_output_buffer = mxCreateNumericMatrix(3,1,mxSINGLE_CLASS,mxREAL);
-
-		//Check if complex
-		AScan_pi = mxGetPi(AScan);
-
-		//anlegen puffer fuer xsum & image
-		if (AScan_pi != NULL) {
-            //complex
-            out = mxCreateNumericArray((mwSize)mxGetNumberOfElements(IMAGE_XYZ), setImageDim, mxDOUBLE_CLASS, mxCOMPLEX);
-            if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
-
-            buffer = mxCreateNumericArray((mwSize)mxGetNumberOfDimensions(AScan), setBufferDim, mxDOUBLE_CLASS, mxCOMPLEX); //Sum buffer laenge ascan //bsp. 3000x1  -> (3000,1) ,2
-            if (buffer==NULL) {mexPrintf("buffer alloc failed!\n");return;}
-
-		} else {
-            //real
-            out = mxCreateNumericArray((mwSize)mxGetNumberOfElements(IMAGE_XYZ), setImageDim, mxDOUBLE_CLASS, mxREAL);
-            if (out==NULL) {mexPrintf("Image_SUM alloc failed!\n");return;}
-
-            buffer = mxCreateNumericArray((mwSize)mxGetNumberOfDimensions(AScan), setBufferDim, mxDOUBLE_CLASS, mxREAL); //Sum buffer laenge ascan //bsp. 3000x1  -> (3000,1) ,2
-            if (buffer==NULL) {mexPrintf("buffer alloc failed!\n");return;}
-
-		}
-	    #ifdef addsig2vol_debug
-        mexPrintf("mxGetNumberOfElements(IMAGE_SUM):  %i\n", mxGetNumberOfElements(out));
-		mexPrintf("mxGetNumberOfElements(IMAGE_XYZ):  %i\n",mxGetNumberOfElements(IMAGE_XYZ));
-		mexPrintf(" mxGetNumberOfElements(out):  %i\n", mxGetNumberOfElements(out));
-		mexPrintf(" mxGetNumberOfElements(buffer):  %i\n", mxGetNumberOfElements(buffer));
-        mexPrintf("  setImageDim[0]:  %i\n", setImageDim[0]);
-        mexPrintf("  setImageDim[1]:  %i\n", setImageDim[1]);
-        mexPrintf("  setImageDim[2]:  %i\n", setImageDim[2]);
-		#endif
-
-		////first Ascan
-		// combined REAL & COMPLEX VERSION
-
-		//no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
-		as2v_MT(mxGetPr(out), mxGetPr(AScan), n_AScan, mxGetPr(buffer),
-			     (float*)mxGetPr(pix_vect), n_X, (float*)mxGetPr(rec_pos), (float*)mxGetPr(send_pos),
-			     (float*)mxGetPr(speed),
-			     (float*)mxGetPr(res), (float*)mxGetPr(timeint), mxGetPi(AScan), mxGetPi(
-				     buffer), mxGetPi(
-				     out), n_Y, n_Z, mxGetPr(IMAGE_SUM), mxGetPi(
-				     IMAGE_SUM));
-
-		//loop over ascans > 1
-		for (i = 2; i <= n_AScan_block; i++) {
-			//check for complex ascan only increase if available because NULL-Pointer +something -> not anymore a nullpointer!
-			if (AScan_pi != NULL)	AScan_pi = mxGetPi(AScan) + (n_AScan * (i - 1)); //set to next value
-            if (1<n_rec_vec_block)  rec_vec_ptr  = (float*)mxGetPr(rec_pos)  + (3 * sizeof(float) * (i - 1)); else  rec_vec_ptr  = (float*)mxGetPr(rec_pos);
-            if (1<n_send_vec_block) send_vec_ptr = (float*)mxGetPr(send_pos) + (3 * sizeof(float) * (i - 1)); else send_vec_ptr  = (float*)mxGetPr(send_pos);
-            if (1<n_speed_vec_block) speed_vec_ptr = (float*)mxGetPr(speed) + (1 * sizeof(float) * (i - 1)); else speed_vec_ptr  = (float*)mxGetPr(speed);
-
-// 			mexPrintf("delta_address :  %i\n\n", n_AScan*(i-1));
-// 			mexPrintf("n_AScan_address :  %p\n\n", mxGetPr(AScan)+(n_AScan)*(i-1));
-// 			mexPrintf("mxGetPr(out):  %p\n\n", mxGetPr(out));
-// 			mexPrintf("mxGetPi(out):  %p\n\n", mxGetPi(out));
-// 			mexPrintf("mxGetPr(Ascan):  %p\n\n", mxGetPr(AScan));
-// 			mexPrintf("mxGetPi(Ascan):  %p\n\n", mxGetPi(AScan));
-// 			mexPrintf("i:  %i\n\n", i);
-
-			// combined REAL & COMPLEX VERSION
-			//no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
-			//matlab seems to do some nasty errors on ptr to float...adding 8bytes instead of 4!!!! workaround implemented
-		as2v_MT(mxGetPr(out), mxGetPr(
-					     AScan) + (n_AScan * (i - 1)), n_AScan, mxGetPr(
-					     buffer), (float*)mxGetPr(
-					     pix_vect), n_X, (float*)rec_vec_ptr,
-				     (float*)send_vec_ptr, (float*)speed_vec_ptr, (float*)mxGetPr(res), (float*)mxGetPr(
-					     timeint), AScan_pi, mxGetPi(buffer),
-				     mxGetPi(out), n_Y, n_Z, mxGetPr(out), mxGetPi(
-					     out));
-
-
-		/*	as2v_MT(mxGetPr(out), mxGetPr(
-					     AScan) + (n_AScan * (i - 1)), n_AScan, mxGetPr(
-					     buffer), mxGetPr(
-					     pix_vect), n_X, (char*)mxGetPr(
-					     rec_pos) + (3 * sizeof(float) * (i - 1)),
-				     mxGetPr(send_pos), mxGetPr(
-					     speed), mxGetPr(res), mxGetPr(
-					     timeint), AScan_pi, mxGetPi(buffer),
-				     mxGetPi(out), n_Y, n_Z, mxGetPr(out), mxGetPi(
-					     out));*/
-			//  test
-			//as2v_complex(mxGetPr(out),mxGetPr(AScan)+(n_AScan*(i-1)),n_AScan,mxGetPr(buffer),mxGetPr(pix_vect),n_X,(char*)mxGetPr(rec_pos)+(3*sizeof(float)*(i-1)),mxGetPr(send_pos),mxGetPr(speed),mxGetPr(res),mxGetPr(timeint),AScan_pi,NULL,NULL,n_Y,n_Z,mxGetPr(out),NULL,qwordbuffer);
-
-//             mxSetPr(ascan_output_buffer,mxGetPr(AScan)+(n_AScan*(i-1)));
-//             mxSetPr(recpos_output_buffer,(char*)mxGetPr(recpos_org)+(3*sizeof(float)*(i-1)));
-//
-//             mexCallMATLAB(0, NULL, 0, NULL, "figure");
-//             mexCallMATLAB(0, NULL, 1, &ascan_output_buffer, "plot");
-//             mexCallMATLAB(0, NULL, 1, &recpos_output_buffer, "disp");
-
-            }
-		   out2 = buffer;
-       //mxDestroyArray(buffer);
-		   break;
-
-	//////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-	} //end switch
-
-	return;
+void as2v_setPrintCallback(void (*callback)(char*, ...)) {
+        if (callback) print = callback;
+}
+void as2v_setUpstreamCallback(void (*callback)(cArray*)) {
+    if (callback) upStreamCArray = callback;
 }
 
 
+void resetJobList(unsigned int x, unsigned int y, unsigned int z)
+{
+        free(threadArg);
+        float cachefracture = 1.5;
+        unsigned int precision = 8;
+        //Anzahl doubles per thread
+        float threadsize = (float) L3CACHE_SIZE/(cachefracture*precision*nCores);
+        //Anzahl der jobs mindestens, um L3 Größe einzuhalten (Anzahl der Stücke, die mind. geschnitten werden müssen)
+        float jobfraction = (float)(x)*y*z/threadsize;
+        if(jobfraction < nCores) {
+            print("");
+            jobfraction = nCores;
+        }
+        //Anzahl der Z maximal, um Größe per Job einzuhalten
+        float zpackage = z/jobfraction;
+        // Ungünstig, wenn andere dimensionen sehr groß sind...
+        if(zpackage < 1.) {
+            print("");
+            jobdimsize = 1.;
+            jobs = z;
+        } else{
+            jobdimsize = (int)zpackage;
+            jobs = ceil((float)z/jobdimsize);
+        }
+        threadArg = (Addsig2vol_param *) malloc (jobs * sizeof(Addsig2vol_param));
+}
 
-//////////////////////////////////////////////////////////////////////////////////
 
 void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, float*pix_vectz,
 		    unsigned int n_Xz, float*rec_posz, float*send_posz, float*speedz, float*resz,
 		    float*timeintz, double*AScan_complexz,
 		    double*buffer_complexz, double*out_complexz, unsigned int n_Yz, unsigned int n_Zz,
 		    double *IMAGE_SUMz, double *IMAGE_SUM_complexz)
-
 {
-
-  //pthread variables
-#ifdef p_threads
+    //pthread variables
+    #ifdef p_threads
     pthread_t mythread[NUMCORES]; //numCPU -1
     int rc = 0; //return-value from thread functions
-#endif
-    Addsig2vol_param threadArg[NUMCORES]; //numCPU -1 BUT for NUM 1
-    float pix_vecz_buffer[NUMCORES][3]= {0,0,0};
+    #endif
+    resetJobList(n_Xz, n_Yz, n_Zz);
+    //NOTE: This must be set on 0, otherwise results doesnt match
+    float pix_vecz_buffer[10000][3]= {0};
     unsigned int n_Zz_start = 0;
     unsigned int n_Zz_num = 0;
     //unsigned int nCores = NUMCORES;
     unsigned int i = 0;
 
-
     ////////Z-Layer multithreading, use multi-threading if enough Z-layers imaged
     if (n_Zz>1)
-      {
-      //limit to usefull number
-      if (n_Zz < nCores)  nCores = n_Zz;
-
-      #ifdef addsig2vol_debug
-      mexPrintf("Z-Dim multithreading\n");
-      #endif
-
-      //Generate parameter structs for Z-multithreading
-		  for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
-        {
-        n_Zz_num  = (unsigned int)(floor(n_Zz/nCores));
-        n_Zz_start = n_Zz_num*i*n_Xz*n_Yz;
-
-         //set picture startpoint
-        pix_vecz_buffer[i][0]= *pix_vectz;
-        pix_vecz_buffer[i][1]= *(pix_vectz+1);
-        pix_vecz_buffer[i][2]= (*(pix_vectz+2))+n_Zz_num*i* *resz;
-
-        if (i==nCores-1)
-        {      //compensated number for FLOOR/CEIL rounding probs
-        n_Zz_num = (unsigned int)(n_Zz-floor(n_Zz/nCores)*(nCores-1));}
-
-        /* mexPrintf("delta_address :  %p\n\n", (pix_vectz));
-        mexPrintf("z :  %f\n\n", *(pix_vectz+2));
-        mexPrintf("z_num :  %i\n\n", n_Zz_num);
-        mexPrintf("z_start :  %i\n\n", n_Zz_start);
-        mexPrintf("x :  %f\n\n", pix_vecz_buffer[i][0]);
-        mexPrintf("y :  %f\n\n", pix_vecz_buffer[i][1]);
-        mexPrintf("z :  %f\n\n", pix_vecz_buffer[i][2]);
-        mexPrintf("p_x :  %p\n\n", &(pix_vecz_buffer[i][0]));*/
-
-        //fill parameter struct
-        threadArg[i].outz=outz+n_Zz_start;//
-        threadArg[i].AScanz=AScanz;
-        threadArg[i].n_AScanz=n_AScanz;
-        threadArg[i].bufferz=bufferz;
-        threadArg[i].pix_vectz=&(pix_vecz_buffer[i][0]);/*mxGetPr(pix_vect)*/
-        threadArg[i].n_Xz=n_Xz;
-        threadArg[i].rec_posz=rec_posz;
-        threadArg[i].send_posz=send_posz;
-        threadArg[i].speedz=speedz;
-        threadArg[i].resz=resz;
-        threadArg[i].timeintz=timeintz;
-        threadArg[i].AScan_complexz=AScan_complexz;
-        threadArg[i].buffer_complexz=buffer_complexz;
-        threadArg[i].out_complexz=out_complexz+n_Zz_start;//
-        threadArg[i].n_Yz=n_Yz;
-        threadArg[i].n_Zz=n_Zz_num;/*n_Zz*/
-        threadArg[i].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
-        threadArg[i].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
-        }
-      }
-      else  {
-
-     //Y-DIM multithreading because Z-layer = 1, use multithreading if enough Y-layers imaged
-      if (n_Yz>1)
-      {
-      //limit to usefull number
-      if (n_Yz < nCores)  nCores = n_Yz;
-
-      #ifdef addsig2vol_debug
-      mexPrintf("Y-Dim multithreading\n");
-      #endif
-
-      //Generate parameter structs for Y-multithreading
-	  	for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
-        {
-        n_Zz_num  = (unsigned int)(floor(n_Yz/nCores));
-        n_Zz_start = n_Zz_num*i*n_Xz;
-
-         //set picture startpoint
-        pix_vecz_buffer[i][0]= *pix_vectz;
-        pix_vecz_buffer[i][1]= (*(pix_vectz+1))+n_Zz_num*i* *resz;
-        pix_vecz_buffer[i][2]= *(pix_vectz+2);
-
-        if (i==nCores-1)
-        {      //compensated number for FLOOR/CEIL rounding probs
-        n_Zz_num = (unsigned int)(n_Yz-floor(n_Yz/nCores)*(nCores-1));}
-
-        //fill parameter struct
-        threadArg[i].outz=outz+n_Zz_start;//
-        threadArg[i].AScanz=AScanz;
-        threadArg[i].n_AScanz=n_AScanz;
-        threadArg[i].bufferz=bufferz;
-        threadArg[i].pix_vectz=&(pix_vecz_buffer[i][0]);/*mxGetPr(pix_vect)*/
-        threadArg[i].n_Xz=n_Xz;
-        threadArg[i].rec_posz=rec_posz;
-        threadArg[i].send_posz=send_posz;
-        threadArg[i].speedz=speedz;
-        threadArg[i].resz=resz;
-        threadArg[i].timeintz=timeintz;
-        threadArg[i].AScan_complexz=AScan_complexz;
-        threadArg[i].buffer_complexz=buffer_complexz;
-        threadArg[i].out_complexz=out_complexz+n_Zz_start;//
-        threadArg[i].n_Yz=n_Zz_num; /*n_Yz*/
-        threadArg[i].n_Zz=n_Zz;
-        threadArg[i].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
-        threadArg[i].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
-        }
-
-      }else
-        { //no multi-threading
-        nCores = 1;
+    {
+        //limit to usefull number
+        if (n_Zz < nCores)  nCores = n_Zz;
 
         #ifdef addsig2vol_debug
-        mexPrintf("No multithreading\n");
+        print("Z-Dim multithreading\n");
         #endif
 
-        //fill parameter struct
-        threadArg[nCores-1].outz=outz;//
-        threadArg[nCores-1].AScanz=AScanz;
-        threadArg[nCores-1].n_AScanz=n_AScanz;
-        threadArg[nCores-1].bufferz=bufferz;
-        threadArg[nCores-1].pix_vectz=pix_vectz;
-        threadArg[nCores-1].n_Xz=n_Xz;
-        threadArg[nCores-1].rec_posz=rec_posz;
-        threadArg[nCores-1].send_posz=send_posz;
-        threadArg[nCores-1].speedz=speedz;
-        threadArg[nCores-1].resz=resz;
-        threadArg[nCores-1].timeintz=timeintz;
-        threadArg[nCores-1].AScan_complexz=AScan_complexz;
-        threadArg[nCores-1].buffer_complexz=buffer_complexz;
-        threadArg[nCores-1].out_complexz=out_complexz;//
-        threadArg[nCores-1].n_Yz=n_Yz;
-        threadArg[nCores-1].n_Zz=n_Zz;
-        threadArg[nCores-1].IMAGE_SUMz=IMAGE_SUMz;//
-        threadArg[nCores-1].IMAGE_SUM_complexz=IMAGE_SUM_complexz; //
+        //Generate parameter structs for Z-multithreading
+        for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
+        {
+            n_Zz_num  = (unsigned int)(floor(n_Zz/nCores));
+            n_Zz_start = n_Zz_num*i*n_Xz*n_Yz;
+
+            //set picture startpoint
+            pix_vecz_buffer[i][0]= *pix_vectz;
+            pix_vecz_buffer[i][1]= *(pix_vectz+1);
+            pix_vecz_buffer[i][2]= (*(pix_vectz+2))+n_Zz_num*i* (*resz);
+
+            //    print("thread %i: pixX, pixY, pixZ: %f %f %f\n", i, pix_vecz_buffer[i][0], pix_vecz_buffer[i][1], pix_vecz_buffer[i][2]);
+
+            if (i==nCores-1)
+            {      //compensated number for FLOOR/CEIL rounding probs
+                n_Zz_num = (unsigned int)(n_Zz-floor(n_Zz/nCores)*(nCores-1));
+            }
+
+
+            /* print("delta_address :  %p\n\n", (pix_vectz));
+            print("z :  %f\n\n", *(pix_vectz+2));
+            print("z_num :  %i\n\n", n_Zz_num);
+            print("z_start :  %i\n\n", n_Zz_start);
+            print("x :  %f\n\n", pix_vecz_buffer[i][0]);
+            print("y :  %f\n\n", pix_vecz_buffer[i][1]);
+            print("z :  %f\n\n", pix_vecz_buffer[i][2]);
+            print("p_x :  %p\n\n", &(pix_vecz_buffer[i][0]));*/
+
+            //fill parameter struct
+            threadArg[i].outz=outz+n_Zz_start;//
+            threadArg[i].AScanz=AScanz;
+            threadArg[i].n_AScanz=n_AScanz;
+            threadArg[i].bufferz=bufferz;
+            threadArg[i].pix_vectz=&(pix_vecz_buffer[i][0]);/*mxGetPr(pix_vect)*/
+            threadArg[i].n_Xz=n_Xz;
+            threadArg[i].rec_posz=rec_posz;
+            threadArg[i].send_posz=send_posz;
+            threadArg[i].speedz=speedz;
+            threadArg[i].resz=resz;
+            threadArg[i].timeintz=timeintz;
+            threadArg[i].AScan_complexz=AScan_complexz;
+            threadArg[i].buffer_complexz=buffer_complexz;
+            threadArg[i].out_complexz=out_complexz+n_Zz_start;//
+            threadArg[i].n_Yz=n_Yz;
+            threadArg[i].n_Zz=n_Zz_num;/*n_Zz*/
+            threadArg[i].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
+            threadArg[i].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
         }
-      }
+    }
+    else
+    {
 
-      ////////////////////imaging
+        //Y-DIM multithreading because Z-layer = 1, use multithreading if enough Y-layers imaged
+        if (n_Yz>1)
+        {
+            //limit to usefull number
+            if (n_Yz < nCores)  nCores = n_Yz;
 
-      //interpol & X-SUM (in the case of NUMCORE=1 only call)
-      #ifdef C_CODE
-      xsum_c(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
-      #else
-      xsum_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
-      #endif
+            #ifdef addsig2vol_debug
+            print("Y-Dim multithreading\n");
+            #endif
 
-      ////release threads
-      for (i=0;i<nCores-1;i++)
-	  {
-      #ifdef p_threads
-      rc = pthread_create( &(mythread[i]), NULL, thread_function, (void*)&(threadArg[i]));
-      if (rc) { mexPrintf("ERROR: return code from pthread_create() is %d\n", rc); return;}
-      #endif
-      }
+            //Generate parameter structs for Y-multithreading
+            for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
+            {
+                n_Zz_num  = (unsigned int)(floor(n_Yz/nCores));
+                n_Zz_start = n_Zz_num*i*n_Xz;
 
-	//imaging-call of last part (in the case of NUMCORE=1 only call)
-      #ifdef C_CODE
-      as2v_c(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
-      #else
-      if (addsig2vol_mode==0) as2v_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
-      if (addsig2vol_mode==2) as2v_complex_sm(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
+                //set picture startpoint
+                pix_vecz_buffer[i][0]= *pix_vectz;
+                pix_vecz_buffer[i][1]= (*(pix_vectz+1))+n_Zz_num*i* *resz;
+                pix_vecz_buffer[i][2]= *(pix_vectz+2);
 
-      #endif
-			//catches threads again
-			for (i=0;i<nCores-1;i++)
-		  {
-              #ifdef p_threads
-              rc = pthread_join ( mythread[i], NULL );
-              if (rc) { mexPrintf("ERROR: return code from pthread_join() is %d\n", rc); return;}
-              #endif
+                if (i==nCores-1)
+                {      //compensated number for FLOOR/CEIL rounding probs
+                    n_Zz_num = (unsigned int)(n_Yz-floor(n_Yz/nCores)*(nCores-1));
+                }
+
+                //fill parameter struct
+                threadArg[i].outz=outz+n_Zz_start;//
+                threadArg[i].AScanz=AScanz;
+                threadArg[i].n_AScanz=n_AScanz;
+                threadArg[i].bufferz=bufferz;
+                threadArg[i].pix_vectz=&(pix_vecz_buffer[i][0]);/*mxGetPr(pix_vect)*/
+                threadArg[i].n_Xz=n_Xz;
+                threadArg[i].rec_posz=rec_posz;
+                threadArg[i].send_posz=send_posz;
+                threadArg[i].speedz=speedz;
+                threadArg[i].resz=resz;
+                threadArg[i].timeintz=timeintz;
+                threadArg[i].AScan_complexz=AScan_complexz;
+                threadArg[i].buffer_complexz=buffer_complexz;
+                threadArg[i].out_complexz=out_complexz+n_Zz_start;//
+                threadArg[i].n_Yz=n_Zz_num; /*n_Yz*/
+                threadArg[i].n_Zz=n_Zz;
+                threadArg[i].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
+                threadArg[i].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
+            }
+
+        } else
+        { //no multi-threading
+            nCores = 1;
+
+            #ifdef addsig2vol_debug
+            print("No multithreading\n");
+            #endif
+
+            //fill parameter struct
+            threadArg[nCores-1].outz=outz;//
+            threadArg[nCores-1].AScanz=AScanz;
+            threadArg[nCores-1].n_AScanz=n_AScanz;
+            threadArg[nCores-1].bufferz=bufferz;
+            threadArg[nCores-1].pix_vectz=pix_vectz;
+            threadArg[nCores-1].n_Xz=n_Xz;
+            threadArg[nCores-1].rec_posz=rec_posz;
+            threadArg[nCores-1].send_posz=send_posz;
+            threadArg[nCores-1].speedz=speedz;
+            threadArg[nCores-1].resz=resz;
+            threadArg[nCores-1].timeintz=timeintz;
+            threadArg[nCores-1].AScan_complexz=AScan_complexz;
+            threadArg[nCores-1].buffer_complexz=buffer_complexz;
+            threadArg[nCores-1].out_complexz=out_complexz;//
+            threadArg[nCores-1].n_Yz=n_Yz;
+            threadArg[nCores-1].n_Zz=n_Zz;
+            threadArg[nCores-1].IMAGE_SUMz=IMAGE_SUMz;//
+            threadArg[nCores-1].IMAGE_SUM_complexz=IMAGE_SUM_complexz; //
         }
+    }
 
-      //set because because potentially reduced by imagesize
-      //if (nCores_bench >0) nCores = nCores_bench;
+    //interpol & X-SUM (in the case of NUMCORE=1 only call)
+    #ifdef C_CODE
+    xsum_c(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
+    #else
+    xsum_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
+    #endif
+
+    #ifdef SAVEDATA    ///// save buffers
+    mkdir("data/buffers", 0777);
+    char p[50];
+    sprintf(p, "data/buffers/buffer_%d", count);
+    saveDoubleArrayUnstruct(buffers, INTERP_RATIO * threadArg[nCores-1].n_AScanz, 1, 1, p)
+    #endif
+    nextJobWaiting = 0;
+    ////release threads
+    for (i=0;i<nCores-1;i++)
+    {
+
+        #ifdef p_threads
+        rc = pthread_create( &(mythread[i]), NULL, thread_function, &(threadArg[i]));
+        if (rc) { print("ERROR: return code from pthread_create() is %d\n", rc); return;}
+        #endif
+    }
+    // AT THIS POINT IMAGE_SUM_1 not OUT_0 anymore (from 0 t0 8?)
+    //-> Because of threading! Not all finish the same time
+
+    //imaging-call of last part (in the case of NUMCORE=1 only call)
+    #ifdef C_CODE
+    as2v_c(&(threadArg[nCores-1]),&(threadArg[nCores-1]), &(threadArg[nCores-1]), &(threadArg[nCores-1]));
+    #else
+    if (addsig2vol_mode==0) as2v_complex(&(threadArg[nCores-1]),&(threadArg[nCores-1]), &(threadArg[nCores-1]), &(threadArg[nCores-1]));
+    if (addsig2vol_mode==2) as2v_complex_sm(&(threadArg[nCores-1]),&(threadArg[nCores-1]), &(threadArg[nCores-1]), &(threadArg[nCores-1]));
+    #endif
 
 
+    //catches threads again
+    for (i=0;i<nCores-1;i++)
+    {
+        #ifdef p_threads
+        rc = pthread_join ( mythread[i], NULL );
+        if (rc) { print("ERROR: return code from pthread_join() is %d\n", rc); return;}
+        #endif
+    }
+
+    #ifdef SAVEDATA          ///// save outputs
+    mkdir("data/outputs", 0777);
+    char p1[50];
+    sprintf(p1, "data/outputs/outs_%d", count);
+    saveDoubleArrayUnstruct(outz, n_Xz, n_Yz, n_Zz, p1);
+    #endif
+
+    //set because because potentially reduced by imagesize
+    //if (nCores_bench >0) nCores = nCores_bench;
+    #ifdef SAVEDATA
+    count++;
+    #endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void as2v_c(Addsig2vol_param* tt, Addsig2vol_param* t1, Addsig2vol_param* t2, Addsig2vol_param* t3)
 {
+    ///TODO: COMPLEX part!!!!
 
-      ///TODO: COMPLEX part!!!!
+    float dist_sv[3] = {0,0,0};
+    float dist_rv[3] = {0,0,0};
+    float factor = 0;
 
-float dist_sv[3] = {0,0,0};
-float dist_rv[3] = {0,0,0};
-float factor = 0;
+    unsigned int index, image_index = 0;
+    unsigned int z, y, x, sampl = 0;
 
-unsigned int index, image_index = 0;
-unsigned int z,y,x,sampl = 0;
+    //decompose variables from struct
+    double*outz = tt->outz;
+    double*AScanz = tt->AScanz;
+    double*out_complexz=tt->out_complexz;
+    double*bufferz = tt->bufferz;
+    float*pix_vectz = tt->pix_vectz;
+    double*buffer_complexz=tt->buffer_complexz;
+    float*rec_posz = tt->rec_posz;
+    float*send_posz = tt->send_posz;
+    float*speedz = tt->speedz;
+    float*resz = tt->resz;
+    float*timeintz = tt->timeintz;
+    double*AScan_complexz = tt->AScan_complexz;
+    double *IMAGE_SUMz = tt->IMAGE_SUMz;
+    double *IMAGE_SUM_complexz = tt->IMAGE_SUM_complexz;
+    unsigned int n_Yz = tt->n_Yz;
+    unsigned int n_Zz = tt->n_Zz;
+    unsigned int n_AScanz = tt->n_AScanz;
+    unsigned int n_Xz = tt->n_Xz;
 
-//decompose variables from struct
-  	    double*outz = tt->outz;
-        double*AScanz = tt->AScanz;
-        double*out_complexz=tt->out_complexz;
-        double*bufferz = tt->bufferz;
-        float*pix_vectz = tt->pix_vectz;
-		    double*buffer_complexz=tt->buffer_complexz;
-        float*rec_posz = tt->rec_posz;
-        float*send_posz = tt->send_posz;
-        float*speedz = tt->speedz;
-        float*resz = tt->resz;
-        float*timeintz = tt->timeintz;
-        double*AScan_complexz = tt->AScan_complexz;
-		    double *IMAGE_SUMz = tt->IMAGE_SUMz;
-        double *IMAGE_SUM_complexz = tt->IMAGE_SUM_complexz;
-        unsigned int n_Yz = tt->n_Yz;
-        unsigned int n_Zz = tt->n_Zz;
-        unsigned int n_AScanz = tt->n_AScanz;
-        unsigned int n_Xz = tt->n_Xz;
+    ///bildgebung
+    factor =  INTERP_RATIO / (*speedz * *timeintz);
 
-///bildgebung
-
-factor =  INTERP_RATIO / (*speedz * *timeintz);
-
-for (z=1; z<=n_Zz; z++)
-	{
-		//dist_sv[2] = pow(send_posz[2] - (((float)z* *resz)+pix_vectz[2]) ,2);
+    for (z=1; z<=n_Zz; z++)
+    {
+        //dist_sv[2] = pow(send_posz[2] - (((float)z* *resz)+pix_vectz[2]) ,2);
         dist_sv[2]  = send_posz[2] - (((float)z* *resz)+pix_vectz[2]);
         dist_sv[2] *= dist_sv[2];
-		//dist_rv[2] = pow(rec_posz[2] - (((float)z* *resz)+pix_vectz[2]) ,2);
+        //dist_rv[2] = pow(rec_posz[2] - (((float)z* *resz)+pix_vectz[2]) ,2);
         dist_rv[2]  = rec_posz[2] - (((float)z* *resz)+pix_vectz[2]);
         dist_rv[2] *= dist_rv[2];
 
-	for (y=1; y<=n_Yz; y++)
-		{
-		//dist_sv[1] = pow(send_posz[1] - ((y* *resz)+pix_vectz[1]) ,2);
-        dist_sv[1]  = send_posz[1] - (((float)y* *resz)+pix_vectz[1]);
-        dist_sv[1] *= dist_sv[1];
-		//dist_rv[1] =  pow(rec_posz[1] - ((y* *resz)+pix_vectz[1]) ,2);
-        dist_rv[1]  = rec_posz[1] - (((float)y* *resz)+pix_vectz[1]);
-        dist_rv[1] *= dist_rv[1];
+        for (y=1; y<=n_Yz; y++)
+        {
+            //dist_sv[1] = pow(send_posz[1] - ((y* *resz)+pix_vectz[1]) ,2);
+            dist_sv[1]  = send_posz[1] - (((float)y* *resz)+pix_vectz[1]);
+            dist_sv[1] *= dist_sv[1];
+            //dist_rv[1] =  pow(rec_posz[1] - ((y* *resz)+pix_vectz[1]) ,2);
+            dist_rv[1]  = rec_posz[1] - (((float)y* *resz)+pix_vectz[1]);
+            dist_rv[1] *= dist_rv[1];
 
-		for (x=1; x<=n_Xz; x++)
-			{
-				//dist_sv[0] = pow(send_posz[0] - (x* *resz),2);
-				//dist_rv[0] =  pow(rec_posz[0] - (x* *resz),2);
-				dist_sv[0] = send_posz[0] - ((x* *resz)+pix_vectz[0]);
-				dist_rv[0] =  rec_posz[0] - ((x* *resz)+pix_vectz[0]);
+            for (x=1; x<=n_Xz; x++)
+            {
+                //dist_sv[0] = pow(send_posz[0] - (x* *resz),2);
+                //dist_rv[0] =  pow(rec_posz[0] - (x* *resz),2);
+                dist_sv[0] = send_posz[0] - ((x* (*resz))+pix_vectz[0]);
+                dist_rv[0] =  rec_posz[0] - ((x* (*resz))+pix_vectz[0]);
 
-				    //dist = (sqrt(dist_sv[1]+ dist_sv[2] + (dist_sv[0]*dist_sv[0])) + sqrt(dist_rv[1]+ dist_rv[2]+ (dist_rv[0]*dist_rv[0])) );
-				index = (unsigned int) floor( ( sqrt(dist_sv[1]+ dist_sv[2] + (dist_sv[0]*dist_sv[0])) + sqrt(dist_rv[1]+ dist_rv[2]+ (dist_rv[0]*dist_rv[0])) ) * factor);
-				    //mexPrintf("index:  %i\n\n", index);
-				    //outz[image_index] = (double)index;
-				if ((index >= n_AScanz*INTERP_RATIO) | (index < 0))
-					outz[image_index] = IMAGE_SUMz[image_index]; //nix addiert
-				else
-					outz[image_index] = IMAGE_SUMz[image_index] + bufferz[index];//AScanz[index];
+                //dist = (sqrt(dist_sv[1]+ dist_sv[2] + (dist_sv[0]*dist_sv[0])) + sqrt(dist_rv[1]+ dist_rv[2]+ (dist_rv[0]*dist_rv[0])) );
+                index = (unsigned int) floor( ( sqrt(dist_sv[1]+ dist_sv[2] + (dist_sv[0]*dist_sv[0])) + sqrt(dist_rv[1]+ dist_rv[2]+ (dist_rv[0]*dist_rv[0])) ) * factor);
 
-				image_index++;
-			}
-		}
-	}
-
+                if ((index >= n_AScanz*INTERP_RATIO) | (index < 0)){
+                    outz[image_index] = IMAGE_SUMz[image_index]; //nix addiert
+                }
+                else{
+                    outz[image_index] = IMAGE_SUMz[image_index] + bufferz[index];//AScanz[index];
+                }
+                image_index++;
+            }
+        }
+    }
 }
+
 
 ///////////////////////////////////////////////
 
@@ -829,14 +580,14 @@ double* sec_buffer;
         double*out_complexz=tt->out_complexz;
         double*bufferz = tt->bufferz;
         float*pix_vectz = tt->pix_vectz;
-		    double*buffer_complexz=tt->buffer_complexz;
+		double*buffer_complexz=tt->buffer_complexz;
         float*rec_posz = tt->rec_posz;
         float*send_posz = tt->send_posz;
         float*speedz = tt->speedz;
         float*resz = tt->resz;
         float*timeintz = tt->timeintz;
         double*AScan_complexz = tt->AScan_complexz;
-		    double *IMAGE_SUMz = tt->IMAGE_SUMz;
+		double *IMAGE_SUMz = tt->IMAGE_SUMz;
         double *IMAGE_SUM_complexz = tt->IMAGE_SUM_complexz;
         unsigned int n_Yz = tt->n_Yz;
         unsigned int n_Zz = tt->n_Zz;
@@ -850,7 +601,7 @@ for (i=0;i<n_AScanz*INTERP_RATIO;i++)
 #endif
 
 //C-Version needs second buffer
-sec_buffer = mxMalloc(INTERP_RATIO * n_AScanz * sizeof(double));
+sec_buffer = malloc(INTERP_RATIO * n_AScanz * sizeof(double));
 
 
 //interp for first Samples
@@ -901,25 +652,34 @@ for (i=n_AScanz*INTERP_RATIO-sampl;i<n_AScanz*INTERP_RATIO;i++)
 /////end xsum
 
 //free sec_buffer (only buffer needed now)
-mxFree(sec_buffer);
+free(sec_buffer);
 
 }
 
 ///////////////////////////////////////////////
 
- void *thread_function(void *arg)
+ void *thread_function(void *argument)
 {
-    Addsig2vol_param* tt = (Addsig2vol_param*) arg;
 
-    //imaging call with four times pointer to struct
-    #ifdef C_CODE
-    as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
-    #else
-    if (addsig2vol_mode==0) as2v_complex(arg,arg,arg,arg);
-    if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
+    //Addsig2vol_param* arg = (Addsig2vol_param*) argument;
+    while(1){
+         pthread_mutex_lock(&MTlock);
+         if(nextJobWaiting >= nCores-1){
+             pthread_mutex_unlock(&MTlock);
+             return NULL;
+         }
+         Addsig2vol_param* arg = &(threadArg[nextJobWaiting]);
+         nextJobWaiting++;
+         pthread_mutex_unlock(&MTlock);
+        //imaging call with four times pointer to struct
+        #ifdef C_CODE
+        as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
+        #else
+        if (addsig2vol_mode==0) as2v_complex(arg,arg,arg,arg);
+        if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
 
-    #endif
-
+        #endif
+    }
    //decomposing for old function
    /* as2v_c(tt->outz, tt->AScanz, tt->n_AScanz, tt->bufferz, tt->pix_vectz,
 		    tt->n_Xz, tt->rec_posz, tt->send_posz, tt->speedz, tt->resz,
@@ -932,8 +692,13 @@ mxFree(sec_buffer);
 
 ////////////////////////////////////////////////////////////////////
 
+void as2v_benchLocal(){
+    as2v_bench(&throughput[0], &latency[0]);
+}
+
 void as2v_bench(uint64_t throughput[], uint64_t latency[])
 {
+
     #pragma fenv_access (on)
     uint32_t i,j,l,k;
 	uint32_t n_AScan;
@@ -942,10 +707,11 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
 	int n_Y;
 	int n_Z;
 	int n_IMAGE;
-	mwSize setImageDim[3];
-	mwSize setBufferDim[2];
-	mwSize setAScanDim[2];
+	// mwSize setImageDim[3];
+	// mwSize setBufferDim[2];
+	// mwSize setAScanDim[2];
 	float pix_vec_bench[3]  = {2,1,77};
+	//float pix_vec_bench[3]  = {2,1,77};
 	float send_vec_bench[3] = {1,2,2};
 	float rec_vec_bench[3]  = {5,6,9};
     float float_bench = 1;
@@ -966,13 +732,13 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
 
     uint32_t minAverage = 7;
     uint32_t average = 8;
-    uint32_t nVoxel_throughput = 256;
+    uint32_t nVoxel_throughput = 128;
 
-    mxArray *AScan_bench;
-	mxArray *buffer_bench;
-	mxArray *out_bench;
-	mxArray *image_sum_bench;
-	mxArray *time_bench;
+    double *AScan_bench;
+	double *buffer_bench;
+	double *out_bench;
+	double *image_sum_bench;
+	double *time_bench;
 
     //autodetect free memory
    /*  do { nVoxel_throughput=(uint32_t) nVoxel_throughput/2;
@@ -981,10 +747,10 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
        nVoxel_throughput=(uint32_t) nVoxel_throughput/2; //nocnmal halbieren f�r 2Bilder
    } while (pr==NULL);*/
 
-  mexPrintf("Benchmarking System:\nLatency with %d Byte Image\nThroughput with %d kByte Image.\n",(int)(MIN_VOXEL*NUMCORES*sizeof(double)),(int)(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput*sizeof(double))/1024);
-  mexPrintf("Threads | Throughput in MVoxel/s                     | Latency in nsec                              | Median-Size\n");
-  mexPrintf("        | Median | Mean   | Min    | Max    | Std    | Median    | Min       | Max       | Std      | \n");
-  mexPrintf("-----------------------------------------------------------------------------------------------------------\n");
+  print("Benchmarking System:\nLatency with %d Byte Image\nThroughput with %d kByte Image.\n",(int)(MIN_VOXEL*NUMCORES*sizeof(double)),(int)(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput*sizeof(double))/1024);
+  print("Threads | Throughput in MVoxel/s                     | Latency in nsec                              | Median-Size\n");
+  print("        | Median | Mean   | Min    | Max    | Std    | Median    | Min       | Max       | Std      | \n");
+  print("-----------------------------------------------------------------------------------------------------------\n");
 
   //check for minimum amount
   if (nVoxel_throughput<NUMCORES*MIN_VOXEL) nVoxel_throughput=NUMCORES*MIN_VOXEL;
@@ -992,33 +758,24 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
    //mexCallMATLAB(0, NULL, 0, NULL, "toc");
 
 	////fix variables
-	time_bench = mxCreateDoubleMatrix(1,1,mxREAL);
+    time_bench = malloc(sizeof(double));
 	n_AScan        = 3000;        //gesamtanzahl elemente IN EINEM ASCAN!!!
 	n_AScan_block  = 1;    //2 dim %number of parallel
 
     //buffer
-    setBufferDim[0] = n_AScan * INTERP_RATIO;
-	setBufferDim[1] = 1;   //z.b: 400000x1
 
-	//ascan
-	setAScanDim[0] = n_AScan;
-	setAScanDim[1] = 1;   //z.b: 400000x1
+    print("buffer size %i\n", (n_AScan*INTERP_RATIO));
+    buffer_bench = malloc(n_AScan*INTERP_RATIO *sizeof(double));
 
-	buffer_bench = mxCreateDoubleMatrix(0, 0, mxREAL);   //Sum buffer laenge ascan
-	mxSetDimensions(buffer_bench, setBufferDim, 2);  //bsp. 3000x1  -> (3000,1) ,2
-	pr = mxMalloc(INTERP_RATIO * n_AScan * sizeof(double));
-	mxSetPr(buffer_bench, pr);
-	mxSetPi(buffer_bench, NULL);
     //pr1=pr;
 
-	AScan_bench = mxCreateDoubleMatrix(0, 0, mxREAL);   //Sum buffer laenge ascan
-	mxSetDimensions(AScan_bench, setAScanDim, 2);  //bsp. 3000x1  -> (3000,1) ,2
-	pr = mxMalloc(n_AScan * sizeof(double));
-	mxSetPr(AScan_bench, pr);
-	mxSetPi(AScan_bench, NULL);
-    //pr2=pr;
+	AScan_bench = malloc(n_AScan *n_AScan_block*sizeof(double));
+
+
+
 
     ///////////////throughput calc (assumption for Latency = Zero because working in saturation)
+
 	n_X             = nVoxel_throughput;
 	n_Y             = nVoxel_throughput;
     n_Z             = nVoxel_throughput;
@@ -1026,44 +783,28 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
     //number of voxel
 		n_IMAGE         = n_X * n_Y * n_Z;
 
-		//////NOT Schlauchimage Code
-		setImageDim[0]  = n_X;
-		setImageDim[1]  = n_Y;
-		setImageDim[2]  = n_Z;
+	out_bench = malloc(n_IMAGE*sizeof(double));
+    image_sum_bench = malloc(n_IMAGE*sizeof(double));
 
-    		out_bench        = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
-			mxSetDimensions(out_bench, setImageDim, 3);                   //bsp. 3000x1  -> (3000,1) ,2
-			pr = mxMalloc(n_IMAGE * sizeof(double));
-			mxSetPr(out_bench, pr);
-			mxSetPi(out_bench, NULL);
-            //pr3=pr;
-
-			image_sum_bench  = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
-			mxSetDimensions(image_sum_bench, setImageDim, 3);                   //bsp. 3000x1  -> (3000,1) ,2
-			pr = mxMalloc(n_IMAGE * sizeof(double));
-			mxSetPr(image_sum_bench, pr);
-			mxSetPi(image_sum_bench, NULL);
-            //pr4=pr;
-
+        print("Voxels in x, y, z: [%i, %i, %i]\n", n_X, n_Y, n_Z );
+        print("Voxels total: %i\n", n_IMAGE);
+        print("Buffer total: %i\n", INTERP_RATIO * n_AScan);
 
        //first call to get REAL memory from system (WARMUP later on faster)
       //set nCore!!!
 	  nCores = 1;
       do{
       counter = TimeCounter();
-      as2v_MT(mxGetPr(out_bench), mxGetPr(AScan_bench), n_AScan, mxGetPr(buffer_bench),
+      as2v_MT((out_bench), (AScan_bench), n_AScan, (buffer_bench),
 			     &pix_vec_bench[0], n_X, &rec_vec_bench[0], &send_vec_bench[0],
 			     &float_bench,
-			     &float_bench, &float_bench, mxGetPi(AScan_bench), mxGetPi(
-				     buffer_bench), mxGetPi(
-				     out_bench), n_Y, n_Z, mxGetPr(image_sum_bench), mxGetPi(
-				     image_sum_bench));
+			     &float_bench, &float_bench, NULL, NULL, NULL, n_Y, n_Z, (image_sum_bench), NULL);
        counter2 = TimeCounter();
        } while (counter2<counter); //retry on error like used wrong core
 
         //get througput time time for setup average
         bench_ref_time= counter2-counter;
-        //mexPrintf("benchreftime %llu c2:%llu c:%llu\n",bench_ref_time, counter, counter2);
+        //print("benchreftime %llu c2:%llu c:%llu\n",bench_ref_time, counter, counter2);
         average = (uint32_t) ((minBenchTime/bench_ref_time)+1); //integer ceil
 
         if (average < minAverage) average = minAverage;
@@ -1082,19 +823,16 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
          {
          do{ counter=TimeCounter();
           //no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
-		  as2v_MT(mxGetPr(out_bench), mxGetPr(AScan_bench), n_AScan, mxGetPr(buffer_bench),
+		  as2v_MT((out_bench), (AScan_bench), n_AScan, (buffer_bench),
 			     &pix_vec_bench[0], n_X, &rec_vec_bench[0], &send_vec_bench[0],
 			     &float_bench,
-			     &float_bench, &float_bench, mxGetPi(AScan_bench), mxGetPi(
-				     buffer_bench), mxGetPi(
-				     out_bench), n_Y, n_Z, mxGetPr(image_sum_bench), mxGetPi(
-				     image_sum_bench));
+			     &float_bench, &float_bench, NULL, NULL, NULL, n_Y, n_Z, (image_sum_bench), NULL);
           /*as2v_MT(pr3, pr2, n_AScan, pr1,
 			     &pix_vec_bench[0], n_X, &rec_vec_bench[0], &send_vec_bench[0],
 			     &float_bench,
 			     &float_bench, &float_bench, NULL,NULL, NULL, n_Y, n_Z, pr4,NULL);*/
 		  //mexCallMATLAB(1, &time_bench, 0, NULL, "toc");
-          //mexPrintf("%llu ms\n",((TimeCounter()-counter)/1000000));
+          //print("%llu ms\n",((TimeCounter()-counter)/1000000));
           counter2=TimeCounter();
          } while(counter2<counter); //retry on error like used wrong core
           average_buffer[j]= counter2-counter;
@@ -1117,10 +855,8 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
          stdabw = (uint64_t) sqrt( (int64_t)stdabw/(int64_t)average);
 
          #ifdef addsig2vol_debug
-          mexPrintf("minTime: %f, timeCounter: %llu counter: %llu\n",(float)(uint64_t)bench_ref_time,counter2,counter);
-           for (k=0;k<average;k++)
-           { mexPrintf("%llu average\n",average_buffer[k]);
-           }
+          //print("minTime: %f, timeCounter: %llu counter: %llu\n",(float)(uint64_t)bench_ref_time,counter2,counter);
+          // for (k=0;k<average;k++){ print("%llu average\n",average_buffer[k]);}
          #endif
 
         //minimum selection
@@ -1131,7 +867,7 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
         //throughput[i-1] = (uint64_t) ((double)n_IMAGE/ ((double) ((uint32_t) bench_ref_time)/1000)); //gekuerzt ns und MVoxel ->Mvoxel/s // index 0 = core1; index1 = core 2 etc...(!)
         throughput[i-1] =  ((1000*(uint64_t)n_IMAGE)/ bench_ref_time); //gekuerzt ns und MVoxel ->Mvoxel/s // index 0 = core1; index1 = core 2 etc...(!)
 
-        mexPrintf("%7i |%7llu |%7llu |%7llu |%7llu |%7llu", i, (int64_t)throughput[i-1],((1000*(int64_t)n_IMAGE)/(int64_t)mittelw), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[average-1]), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[0]), (1000*(int64_t)n_IMAGE)/((int64_t)stdabw));
+        print("%7i |%7llu |%7llu |%7llu |%7llu |%7llu", i, (int64_t)throughput[i-1],((1000*(int64_t)n_IMAGE)/(int64_t)mittelw), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[average-1]), (1000*(int64_t)n_IMAGE)/((int64_t)average_buffer[0]), (1000*(int64_t)n_IMAGE)/((int64_t)stdabw));
 
 
        //get throughput time time for setup average
@@ -1159,13 +895,10 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
           do{
           counter=TimeCounter();
 			//no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
-		  as2v_MT(mxGetPr(out_bench), mxGetPr(AScan_bench), n_AScan, mxGetPr(buffer_bench),
+		  as2v_MT((out_bench), (AScan_bench), n_AScan, (buffer_bench),
 			     &pix_vec_bench[0],(unsigned int) MIN_VOXEL, &rec_vec_bench[0], &send_vec_bench[0],
 			     &float_bench,
-			     &float_bench, &float_bench, mxGetPi(AScan_bench), mxGetPi(
-				     buffer_bench), mxGetPi(
-				     out_bench), (unsigned int) 1,(unsigned int) NUMCORES, mxGetPr(image_sum_bench), mxGetPi(
-				     image_sum_bench));
+			     &float_bench, &float_bench, NULL, NULL, NULL, (unsigned int) 1,(unsigned int) NUMCORES, (image_sum_bench), NULL);
 
 		//  mexCallMATLAB(1, &time_bench, 0, NULL, "toc");
         //latency[i] =(*mxGetPr(time_bench)/minAverage)/1;	 //assumption for 1 PIXEL!
@@ -1179,9 +912,7 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
             }
          }
          #ifdef addsig2vol_debug
-            for (k=0;k<minAverage;k++)
-           { mexPrintf("%llu average\n",average_buffer[k]);
-           }
+            //for (k=0;k<minAverage;k++){ print("%llu average\n",average_buffer[k]);  }
         #endif
 
          mittelw=0;
@@ -1197,7 +928,7 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
         latency[i-1] = (uint64_t) average_buffer[0];	 //assumption for 1 PIXEL! // index 0 = core1; index1 = core 2 etc...(!)
         //median selection
         latency[i-1] = (uint64_t) average_buffer[(uint32_t) ceil(minAverage/2)];
-	    mexPrintf("|%10llu |%10llu |%10llu |%10llu |%8i\n", latency[i-1],average_buffer[0],average_buffer[minAverage-1],stdabw,average);
+	    print("|%10llu |%10llu |%10llu |%10llu |%8i\n", latency[i-1],average_buffer[0],average_buffer[minAverage-1],stdabw,average);
   		}
 
 		for (i=NUMCORES;i>0;i--)
@@ -1220,47 +951,48 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
       switch (i+1)
       {
       case 1:
-          mexPrintf("Detected Single-core System, 1 thread prefered\n");
+          print("Detected Single-core System, 1 thread prefered\n");
           break;
       case 2:
-          mexPrintf("Detected Dual-core or Hyperthreading System, 2 threads prefered\n");
+          print("Detected Dual-core or Hyperthreading System, 2 threads prefered\n");
           break;
       case 3:
-          mexPrintf("Detected Triple-core or Hyperthreading System, 3 threads prefered\n");
+          print("Detected Triple-core or Hyperthreading System, 3 threads prefered\n");
           break;
       case 4:
-          mexPrintf("Detected Quad-Core system, 4 threads prefered\n");
+          print("Detected Quad-Core system, 4 threads prefered\n");
           break;
       case 8:
-          mexPrintf("Detected Octa-Core system (or Quadcore with HT), 8 threads prefered\n");
+          print("Detected Octa-Core system (or Quadcore with HT), 8 threads prefered\n");
           break;
       case 16:
-          mexPrintf("Detected 16 Core system, 16 threads prefered\n");
+          print("Detected 16 Core system, 16 threads prefered\n");
           break;
       default:
-          mexPrintf("Detected %i-core system, %i threads prefered (?)\n",i+1,i+1);
+          print("Detected %i-core system, %i threads prefered (?)\n",i+1,i+1);
       }
 
 
       //benchmark perf-per size
-      mexPrintf("\nPerformance for various imagesize in Voxel (with potentially %i Cores)\n",nCores);
-      mexPrintf("     Voxel | Throughput in kVoxel/s         | Time in mikros  | Malloc time (mikro-sec)\n");
-      mexPrintf("           | Median   | Mean     | Std      |           | Median | mean  | Std  | min  | max  \n");
-      mexPrintf("------------------------------------------------------------------------------------------------\n");
+      print("\nPerformance for various imagesize in Voxel (with potentially %i Cores)\n",nCores);
+      print("     Voxel | Throughput in kVoxel/s         | Time in mikros  | Malloc time (mikro-sec)\n");
+      print("           | Median   | Mean     | Std      |           | Median | mean  | Std  | min  | max  \n");
+      print("------------------------------------------------------------------------------------------------\n");
+      print("voxel throughput maximal: %i\n", nVoxel_throughput*nVoxel_throughput*nVoxel_throughput);
       for (i=MIN_VOXEL;i<=(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput);i=i*2)
       {
+          //print("i: %i, Nx: %i, Nz: %i \n", i, MIN_VOXEL, (uint32_t) floor(i/MIN_VOXEL) );
+
           for (j=0;j<minAverage;j++)
           {
+
               do {
                   counter=TimeCounter();
                   //no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
-                  as2v_MT(mxGetPr(out_bench), mxGetPr(AScan_bench), n_AScan, mxGetPr(buffer_bench),
+                  as2v_MT((out_bench), (AScan_bench), n_AScan, (buffer_bench),
                   &pix_vec_bench[0], (uint32_t) MIN_VOXEL, &rec_vec_bench[0], &send_vec_bench[0],
                   &float_bench,
-                  &float_bench, &float_bench, mxGetPi(AScan_bench), mxGetPi(
-                  buffer_bench), mxGetPi(
-                  out_bench), (uint32_t) 1, (uint32_t) (i/MIN_VOXEL),  mxGetPr(image_sum_bench), mxGetPi(
-                  image_sum_bench));
+                  &float_bench, &float_bench, NULL, NULL, NULL, (uint32_t) 1, (uint32_t) (i/MIN_VOXEL), (image_sum_bench), NULL);
                   counter2 = TimeCounter(); } while(counter2<counter); //retry on error like used wrong core
               average_buffer[j]= counter2-counter;
           }
@@ -1280,20 +1012,19 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
          stdabw = (uint64_t) sqrt((int64_t) stdabw/minAverage);
 
           #ifdef addsig2vol_debug
-           for (k=0;k<minAverage;k++)
-           { mexPrintf("%llu values-range \n",average_buffer[k]);}
+           //for (k=0;k<minAverage;k++){ print("%llu values-range \n",average_buffer[k]);}
           #endif
 
           //minimum selection
           counter2 = (uint64_t) average_buffer[0];	 //assumption for 1 PIXEL! // index 0 = core1; index1 = core 2 etc...(!)
           //median selection
           counter2 = (uint64_t) average_buffer[(uint32_t) ceil(minAverage/2)];
-          // mexPrintf("%10luu , %10llu, %10llu \n",TimeCounter, counter, TimeCounter());
+          // print("%10luu , %10llu, %10llu \n",TimeCounter, counter, TimeCounter());
           //counter=pow(2,64)-counter;
 
           //mexCallMATLAB(1, &time_bench, 0, NULL, "toc");
-          //mexPrintf("%llu ms\n",((TimeCounter()-counter)/1000000));
-          mexPrintf("%10i | %8llu | %8llu | %8llu |%8llu ",i,(1000000*(uint64_t)i)/(counter2),(1000000*(uint64_t)i)/(mittelw),((uint64_t)i*1000000)/(stdabw),(uint64_t)(counter2/1000) );
+          //print("%llu ms\n",((TimeCounter()-counter)/1000000));
+          print("%10i | %8llu | %8llu | %8llu |%8llu ",i,(1000000*(uint64_t)i)/(counter2),(1000000*(uint64_t)i)/(mittelw),((uint64_t)i*1000000)/(stdabw),(uint64_t)(counter2/1000) );
 
           //fix  (UGLY!!!!)
           nCores=nCores_bench;
@@ -1304,18 +1035,12 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
               for (j=0;j<minAverage;j++)
               {
                   do {
-                      mxDestroyArray(image_sum_bench);
+                      free(image_sum_bench);
 
                       counter=TimeCounter();
-                      setImageDim[0]  = i;
-                      setImageDim[1]  = 1;
-                      setImageDim[2]  = 1;
 
-                      image_sum_bench  = mxCreateDoubleMatrix(0, 0, mxREAL);        //out     = mxCreateDoubleMatrix(n_Index,1,mxCOMPLEX);
-                      mxSetDimensions(image_sum_bench, setImageDim, 3);                   //bsp. 3000x1  -> (3000,1) ,2
-                      pr = mxMalloc(n_IMAGE * sizeof(double));
-                      mxSetPr(image_sum_bench, pr);
-                      mxSetPi(image_sum_bench, NULL);
+                      image_sum_bench = malloc(n_IMAGE*sizeof(double));
+
                      counter2 = TimeCounter(); } while(counter2<counter); //retry on error like used wrong core
                      average_buffer[j]= counter2-counter;
               }
@@ -1339,47 +1064,27 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
              counter2 = (uint64_t) average_buffer[0];	 //assumption for 1 PIXEL! // index 0 = core1; index1 = core 2 etc...(!)
              //median selection
              counter2 = (uint64_t) average_buffer[(uint32_t) ceil(minAverage/2)];
-             mexPrintf("| %8llu | %8llu | %8llu |%8llu |%8llu\n", (uint64_t)counter2/1000,(uint64_t)mittelw/1000,(uint64_t)stdabw/1000,(uint64_t) average_buffer[0]/1000,(uint64_t) average_buffer[minAverage-1]/1000);
+             print("| %8llu | %8llu | %8llu |%8llu |%8llu\n", (uint64_t)counter2/1000,(uint64_t)mittelw/1000,(uint64_t)stdabw/1000,(uint64_t) average_buffer[0]/1000,(uint64_t) average_buffer[minAverage-1]/1000);
 
           }
-
 
         //check status
         fpu_check();
 
 
         //free memory
-		  mxDestroyArray(out_bench);
-		  mxDestroyArray(image_sum_bench);
+		  free(out_bench);
+		  free(image_sum_bench);
         //free memory
-		  mxDestroyArray(buffer_bench);
-		  mxDestroyArray(AScan_bench);
-		  mxDestroyArray(time_bench);
+		  free(buffer_bench);
+		  free(AScan_bench);
+		  free(time_bench);
 }
 
 
 uint64_t TimeCounter(void) {
 uint64_t counter;
-    #ifndef __WIN32__
-        #ifdef WIN32
-        #define __WIN32__
-        #endif
-        #ifdef _WIN32
-        #define __WIN32__
-        #endif
-        #ifdef __WIN32
-        #define __WIN32__
-        #endif
-        #ifdef _WIN64
-        #define __WIN32__
-        #endif
-        #ifdef WIN64
-        #define __WIN32__
-        #endif
-        #ifdef _WINDOWS
-        #define __WIN32__
-        #endif
-    #endif
+
 
     #ifdef __WIN32__ //fitting windows64 AND windows32
     #include <windows.h>
@@ -1391,7 +1096,7 @@ uint64_t counter;
     counter = (uint64_t) ((1000000000*iCount)/iFreq); //f�r nSekunden (balancing der multiplikation)
 
 //#ifdef addsig2vol_debug
-    //mexPrintf("iFreq:%llu, iCount:%llu, Counter:%llu\n",iFreq,iCount,counter);
+    //print("iFreq:%llu, iCount:%llu, Counter:%llu\n",iFreq,iCount,counter);
     //#endif
     #endif
 
@@ -1404,11 +1109,11 @@ uint64_t counter;
 
     /*
     clock_gettime(CLOCK_REALTIME, &time_str); clock_getres(CLOCK_REALTIME, &time_res);
-    mexPrintf("CLOCK_REALTIME clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
+    print("CLOCK_REALTIME clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
     clock_gettime(CLOCK_MONOTONIC, &time_str); clock_getres(CLOCK_MONOTONIC, &time_res);
-    mexPrintf("CLOCK_MONOTONIC clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
+    print("CLOCK_MONOTONIC clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time_str); clock_getres(CLOCK_PROCESS_CPUTIME_ID, &time_res);
-    mexPrintf("CLOCK_PROCESS_CPUTIME_ID clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
+    print("CLOCK_PROCESS_CPUTIME_ID clockRes:%f, nsec:%f, csec:%f\n",(double)time_res.tv_nsec,(double) time_str.tv_nsec,(double) time_str.tv_sec);
     */
       //int clock_getres(CLOCK_REALTIME, struct timespec *res);
     //int clock_gettime(clockid_t clk_id, struct timespec *tp);
@@ -1447,49 +1152,286 @@ void fpu_check()
     #endif
 
 
-    mexPrintf("FPU/SSE Control-register(0x%.4x): ", control_wordfp );
+    print("FPU/SSE Control-register(0x%.4x): ", control_wordfp );
     //RC round-control
      switch ((control_wordfp & __FPU_CW_ROUND_MASK__)>>0)//& 3072)
     {case __FPU_CW_ROUND_NEAR__:
-         mexPrintf("nearest rounding");
+         print("nearest rounding");
          break;
      case __FPU_CW_ROUND_UP__:
-          mexPrintf("ceil-rounding");
+          print("ceil-rounding");
          break;
      case __FPU_CW_ROUND_DOWN__:
-          mexPrintf("floor-rounding");
+          print("floor-rounding");
          break;
      case __FPU_CW_ROUND_CHOP__:
-          mexPrintf("truncation rounding");
+          print("truncation rounding");
          break;
     }
-    // mexPrintf("%x %x %x",control_wordfp & _MCW_PC, _MCW_PC,_MCW_RC);
+    // print("%x %x %x",control_wordfp & _MCW_PC, _MCW_PC,_MCW_RC);
 
     //PC Precision-control
     switch ((control_wordfp & __FPU_CW_PREC_MASK__ )>>0 )//& 768)
     {case __FPU_CW_PREC_SINGLE__:
-         mexPrintf(", internal precision float (32bit)\n");
+         print(", internal precision float (32bit)\n");
          break;
      case __FPU_CW_PREC_DOUBLE__:
-         mexPrintf(", internal precision double (64bit)\n");
+         print(", internal precision double (64bit)\n");
          break;
      case __FPU_CW_PREC_EXTENDED__:
-         mexPrintf(", internal precision extended double (80bit)\n");
+         print(", internal precision extended double (80bit)\n");
          break;
      default :
-         mexPrintf(", internal precision invalid \n");
+         print(", internal precision invalid \n");
     }
 
 #ifdef __WIN32__
     //FPU/SSE status
-    mexPrintf("FPU/SSE status (0x%.4x): ", status_wordfp);
-    if ((status_wordfp & 32)>>5)  mexPrintf("inexact ");
-    if ((status_wordfp & 16)>>4)  mexPrintf("underflow ");
-    if ((status_wordfp &  8)>>3)  mexPrintf("overflow ");
-    if ((status_wordfp &  4)>>2)  mexPrintf("division-by-zero ");
-    if ((status_wordfp &  2)>>1)  mexPrintf("denormal ");
-    if ((status_wordfp &  1)>>0)  mexPrintf("invalid operation mask ");
-    if ( status_wordfp == 0 )  mexPrintf("OK");
-    mexPrintf("\n");
+    print("FPU/SSE status (0x%.4x): ", status_wordfp);
+    if ((status_wordfp & 32)>>5)  print("inexact ");
+    if ((status_wordfp & 16)>>4)  print("underflow ");
+    if ((status_wordfp &  8)>>3)  print("overflow ");
+    if ((status_wordfp &  4)>>2)  print("division-by-zero ");
+    if ((status_wordfp &  2)>>1)  print("denormal ");
+    if ((status_wordfp &  1)>>0)  print("invalid operation mask ");
+    if ( status_wordfp == 0 )  print("OK");
+    print("\n");
+    #endif
+}
+
+
+
+void as2v_overwriteBenchresultToThreadcount_n(uint32_t n){
+    if ((n <= NUMCORES) & (n >= 1)){
+        print("Clear benchmark results, manual set number of threads to %i\n", n);
+        nCores_bench = n;
+        //fill
+        for (int i=NUMCORES; i>0; i--){
+            throughput[i-1]=1;
+            latency[i-1]=10000000;
+        }
+        throughput[nCores_bench-1]=299;
+        latency[nCores_bench-1]=1;
+    } else {
+        print("Number of threads %i\n is invalid, benchmark results remain unchanged\n", n);
+    }
+}
+
+as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_complexz,
+            cArrayFloat* pix_vectz, cArrayFloat* rec_posz, cArrayFloat* send_posz, cArrayFloat* speedz, float* resz, float* timeintz,
+		    cArrayDouble* IMAGE_SUM_realz, cArrayDouble* IMAGE_SUM_complexz)
+{
+    as2v_results results = {NULL, NULL, NULL, NULL};
+    //Check if minimal data is available...
+    if (AScan_realz && IMAGE_SUM_realz && pix_vectz && rec_posz && send_posz && speedz && resz && timeintz){
+
+        double* AScan_complexz_ptr = NULL;
+        double* IMAGE_SUM_complexz_ptr = NULL;
+
+        if ( (AScan_complexz==!NULL) & (IMAGE_SUM_complexz==!NULL) ){
+            AScan_complexz_ptr = AScan_complexz->data;
+            IMAGE_SUM_complexz_ptr = IMAGE_SUM_complexz->data;
+        } else if( (AScan_complexz==NULL) ^ (IMAGE_SUM_complexz==NULL) ){
+            print("Error: Mismatch complex/real AScan vs complex/real sum image, break\n");
+            return results;
+        }
+
+        // Save pointers locally: Do NOT do pointer arithmetic in the structs themselves (used to reference/free data)
+        double* AScan_realz_ptr = AScan_realz->data;
+        double* IMAGE_SUM_realz_ptr = IMAGE_SUM_realz->data;
+        float* pix_vectz_ptr = pix_vectz->data;
+        float *rec_vec_ptr=rec_posz->data;
+        float *send_vec_ptr=send_posz->data;
+        float *speedz_vec_ptr=speedz->data;
+
+        unsigned int i;
+        unsigned int n_AScan = AScan_realz->x;
+        unsigned int n_AScan_block = AScan_realz->y;
+        unsigned int n_Z = IMAGE_SUM_realz->z;
+        unsigned int n_Y = IMAGE_SUM_realz->y;
+        unsigned int n_X = IMAGE_SUM_realz->x;
+        unsigned int n_IMAGE = IMAGE_SUM_realz->len;
+        unsigned int n_rec_vec_block = rec_posz->y;
+        unsigned int n_send_vec_block= send_posz->y;
+        unsigned int n_speed_vec_block = speedz->y;
+
+        #ifdef addsig2vol_debug
+        print("AScan_real:\t"); caMiniprint(AScan_realz);
+        print("IMAGE_SUM_real:\t"); caMiniprint(IMAGE_SUM_realz);
+        print("send_pos:\t"); caMiniprint(send_posz);
+        print("rec_pos:\t"); caMiniprint(rec_posz);
+        print("speed:\t\t"); caMiniprint(speedz);
+        print("n_AScan: %i\n", n_AScan);
+        print("n_AScan_block: %i\n", n_AScan_block);
+        print("n_Z: %i\n", n_Z);
+        print("n_Y: %i\n", n_Y);
+        print("n_X: %i\n", n_X);
+        print("n_IMAGE: %i\n", n_IMAGE);
+        print("res: %f\n", *resz);
+        print("timeint: %f\n", *timeintz);
+        print("INTERP_RATIO: %i\n", INTERP_RATIO);
+        print("NUMCORES: %i\n", NUMCORES);
+        print("MIN_VOXEL: %i\n", MIN_VOXEL);
+        fpu_check();
+        #endif
+
+        //check if X_Dim >= MIN_VOXEL
+        if (n_X < MIN_VOXEL)
+        {
+            print("Error: X-Dim has to be at least %d (X is %u, Y is %u, Z %u). Use Y-dim for such small sizes.\n", MIN_VOXEL, n_X, n_Y, n_Z);
+            return results;
+        }
+
+        ////benchmark of performance, selecting number of threads
+        if (nCores_bench == -1) as2v_benchLocal();
+
+        //select if use or not use multithreading
+        #ifdef addsig2vol_debug
+        print("selectedCore perf: %f, %f\n",((double)n_IMAGE/((double)throughput[nCores_bench-1] * 1000000))+((double)latency[nCores_bench-1]/1000000000),(((double)n_IMAGE/((double)throughput[0]*1000000))+((double)latency[0]/1000000000)));
+        print("n_IMAGE: %i, throughput: %f, latency: %f, %f, %f\n",n_IMAGE, (double)throughput[nCores_bench-1],(double)latency[nCores_bench-1],(double)throughput[0],(double)latency[0]);
+        #endif
+
+        if ( ( ((double)n_IMAGE/((double)throughput[nCores_bench-1] *1000000))+((double)latency[nCores_bench-1]/1000000000)) <= (((double)n_IMAGE/((double)throughput[0] *1000000))+((double)latency[0]/1000000000)))
+        {
+            nCores = nCores_bench;
+        }
+        else
+        {
+            #ifdef addsig2vol_debug
+            print("Overhead to big, switch to single thread.\n");
+            #endif
+            nCores = 1;
+        }
+
+        #ifdef addsig2vol_debug
+        print("selectedNumCores: %i\n", nCores);
+        print("savedNumCORE: %i\n", nCores_bench);
+        print("perf_MT: %e\n", ( (throughput[nCores_bench] * n_IMAGE)+latency[nCores_bench]));
+        print("perf_single: %e\n", ((throughput[1]*n_IMAGE)+latency[1]));
+        #endif
+
+
+
+        //soundmap version ?
+        if (((speedz->x == n_X) & (speedz->y == n_Y) ) & ((speedz->z == n_Z) | (speedz->z == 1)))
+        {
+            print("Info: Soundmap version\n");
+            addsig2vol_mode = 2;
+        }
+        else
+        {
+            //not soundmapversion; blocked version?
+            if ( (rec_posz->x != 3) |  (send_posz->x != 3) ) //check first dimension
+            {
+                print("send_pos:\t"); caMiniprint(send_posz);
+                print("rec_pos:\t"); caMiniprint(rec_posz);
+                print("ascan_block: %d, blocksize rec_vec: %d, blocksize send_vec: %d",n_AScan_block,n_rec_vec_block,n_send_vec_block);
+
+                print("Error: 3-d vectors needed for emitter & receiver positions or transposed blocked pos (1x3 instead of 3x1), break\n");
+                return results;
+            }
+
+            if (!( (((n_AScan_block == n_rec_vec_block) & (n_AScan_block == n_send_vec_block)) | ((1 == n_rec_vec_block) & (n_AScan_block == n_send_vec_block)) | ((n_AScan_block == n_rec_vec_block) & (1 == n_send_vec_block))) & ((n_AScan_block == n_speed_vec_block) | (1 == n_speed_vec_block)) ))
+            {
+                print("Error: Blocked sizes parameter mismatch. Size(AScan,2) has to be size(rec_vec,2) and/or size(send_vec,2), n_rec_vec_block:%i n_send_vec_block:%i n_speed_vec_block:%i break\n",n_rec_vec_block, n_send_vec_block, n_speed_vec_block);
+                return results;
+            }
+            if (n_AScan_block == 1)
+            {
+                //if here blocked mode successful initalized!
+                addsig2vol_mode = 1;
+            }
+            else{
+                //normal version
+                addsig2vol_mode = 0;
+            }
+        }
+
+        // malloc space for results
+        out_real = malloc(sizeof(double)*n_IMAGE);
+        buffer_real = malloc(sizeof(double)*n_AScan*INTERP_RATIO);
+        cAout_real = caNewArrayDoubleFromData(out_real, n_X, n_Y, n_Z);
+        cAbuffer_real = caNewArrayDoubleFromData(buffer_real, n_AScan*INTERP_RATIO, 1, 1);
+
+        if (AScan_complexz) {
+            //we know that both AScan_complexz and IMAGE_SUM_complexz exist
+            out_complex = malloc(sizeof(double)*n_IMAGE);
+            buffer_complex = malloc(sizeof(double)*n_AScan*INTERP_RATIO);
+            cAout_complex = caNewArrayDoubleFromData(out_complex, n_X, n_Y, n_Z);
+            cAbuffer_complex = caNewArrayDoubleFromData(buffer_complex, n_AScan*INTERP_RATIO, 1, 1);
+        }
+
+        #ifdef addsig2vol_debug
+        print("Set addsig2vol_mode to %i\n", addsig2vol_mode);
+        print("Elements in out_real: %i\n", n_IMAGE);
+        print("Elements in out_complex: %i\n", n_IMAGE);
+        print("Elements in buffer_real: %i\n", n_AScan*INTERP_RATIO);
+        print("Elements in buffer_complex: %i\n", n_AScan*INTERP_RATIO);
+        #endif
+
+        #ifdef SAVEDATA
+        mkdir("data", 0777);
+        saveDoubleArrayUnstruct(AScan_realz_ptr, n_AScan, n_AScan_block, 1, "data/AScan");
+        saveFloatArrayUnstruct(pix_vectz_ptr, 3, 1, 1, "data/pix");
+        saveFloatArrayUnstruct(rec_vec_ptr, 3, n_AScan_block, 1, "data/rec");
+        saveFloatArrayUnstruct(send_vec_ptr, 3, n_AScan_block, 1, "data/send");
+        saveFloatArrayUnstruct(speedz_vec_ptr, 1, 1, 1, "data/speed");
+        saveDoubleArrayUnstruct(IMAGE_SUM_realz_ptr, n_X, n_Y, n_Z, "data/IMAGE_SUM");
+        #endif
+
+        ////first Ascan
+        // combined REAL & COMPLEX VERSION
+        as2v_MT(out_real, AScan_realz_ptr, n_AScan, buffer_real,
+            pix_vectz_ptr, n_X, rec_vec_ptr, send_vec_ptr,
+            speedz_vec_ptr, resz, timeintz, AScan_complexz_ptr, buffer_complex, out_complex, n_Y, n_Z, IMAGE_SUM_realz_ptr, IMAGE_SUM_complexz_ptr);
+
+
+        //loop over ascans > 1
+        for (i = 2; i <= n_AScan_block; i++) {
+            #ifdef addsig2vol_debug
+            print("as2v_MT call %i:\n", i);
+            #endif
+            //check for complex ascan only increase if available because NULL-Pointer +something -> not anymore a nullpointer!
+            if (AScan_complexz != NULL)	AScan_complexz = AScan_complexz + (n_AScan * (i - 1)); //set to next value
+            if (1<n_rec_vec_block)  rec_vec_ptr  = rec_posz->data  + (3 * (i - 1)); else rec_vec_ptr = rec_posz->data;
+            if (1<n_send_vec_block) send_vec_ptr = send_posz->data + (3 * (i - 1)); else send_vec_ptr = send_posz->data;
+            if (1<n_speed_vec_block) speedz_vec_ptr = speedz->data + (1  * (i - 1)); else speedz_vec_ptr = speedz->data;
+
+
+            // NOTE: pass out_real/out_complex as IMAGE_SUM to sum up the single scans
+            as2v_MT(out_real, AScan_realz_ptr + (n_AScan * (i - 1)), n_AScan, buffer_real,
+            pix_vectz_ptr, n_X, rec_vec_ptr, send_vec_ptr,
+            speedz_vec_ptr, resz, timeintz, AScan_complexz_ptr, buffer_complex, out_complex, n_Y, n_Z, out_real, out_complex);
+
+            //             mxSetPr(ascan_output_buffer,mxGetPr(AScan)+(n_AScan*(i-1)));
+            //             mxSetPr(recpos_output_buffer,(char*)mxGetPr(recpos_org)+(3*sizeof(float)*(i-1)));
+            //
+            //             mexCallMATLAB(0, NULL, 0, NULL, "figure");
+            //             mexCallMATLAB(0, NULL, 1, &ascan_output_buffer, "plot");
+            //             mexCallMATLAB(0, NULL, 1, &recpos_output_buffer, "disp");
+
+        }
+
+        // store resulting image
+        results.out_real = &cAout_real;
+        results.buffer_real = &cAbuffer_real;
+        results.buffer_complex = &cAbuffer_complex;
+        results.out_complex = &cAout_complex;
+    }
+    //Daten fehlen
+    return results;
+}
+
+void printIntro(void){
+    print("\naddSig2Vol_2 SSE1 Assembler Optimized 64bit LINUX&Windows v3.1 (Multiple Rec-AScan Vers.)\n\n Calculate the ellip. backprojection.\nUses SSE. Features: Win&Linux, 32&64bit version, SSE1-Assembler&C-Implementation, Multithreaded by PosixThreads (under windows pthreadsVC2.dll might be needed)\n\t %s. M.Zapf KIT-IPE\n\n",__DATE__);
+    // TODO print som flags for debugging
+    #ifdef addsig2vol_debug
+        print("addsig2vol_debug: 1\n");
+        #ifdef C_CODE
+            print("C_CODE: 1, use c implementation\n");
+        #else
+            print("C_CODE: 0, use asm implementation\n");
+        #endif
+
     #endif
 }
