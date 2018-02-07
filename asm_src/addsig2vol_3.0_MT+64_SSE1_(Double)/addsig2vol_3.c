@@ -171,7 +171,7 @@ static cArrayDouble cAbuffer_complex;
         } Addsig2vol_param;*/
 
 
-        static unsigned int L3CACHE_SIZE = 307200000000;
+        static unsigned int L3CACHE_SIZE = 3072000;
         static unsigned int L3CACHE_LINESIZE = 64;
         static unsigned int jobs = 0;
         static unsigned int nextJobWaiting = 0;
@@ -234,60 +234,48 @@ void as2v_setUpstreamCallback(void (*callback)(cArray*)) {
 void resetJobList(unsigned int x, unsigned int y, unsigned int z)
 {
     free(threadArg);
-    // // Definition nach Cache
-    // float cacheFracture = 2;
-    // unsigned int imagePrecision = 8;
-    // //Anzahl doubles per thread
-    // float workSegment = (float) L3CACHE_SIZE/(cacheFracture*imagePrecision*nCores); //[Doubles per thread]
-    // //Anzahl der jobs mindestens, um L3 Größe einzuhalten (Anzahl der Stücke, die mind. geschnitten werden müssen)
-    // float workPackages = (float)x*y*z/workSegment;
-    //
-    // // Check that there is at least one package for each thread
-    // if(workPackages < nCores) {
-    //     print("");
-    //     workPackages = nCores;
-    // }
-    // //berechne Elemente für jedes package
-    // float imageFraction = 1/workPackages;
-    // unsigned int elementsPerPackage = (unsigned int) x*y*z*imageFraction;
-    // // TODO Hier kann man Größe auch forcen für tests
-    // if (elementsPerPackage < 4) elementsPerPackage = 4;
-    //
-    // // force layout: Für Interlacing muss hier einfach weiter geteilt werden, s.d. fullZ und fullY 0 werden, fullX = 0;
-    // unsigned int posZ = floor((float)elementsPerPackage/(x*y));
-    // unsigned int posY = floor((float)(elementsPerPackage-x*y*posZ)/x);
-    // unsigned int posX = elementsPerPackage-posZ*y*z-posY*x;
-    //
-    // //calc total jobs necessary ( upper bound)
-    // jobs = ceil(z/(posZ+1)) * ceil(y/(posY+1)) * ceil(x/(posX+1));
-    //
-    // print("elementsPerPackage: %i, posZ, posY, posX: %i %i %i, jobs (upper bound): %i \n", elementsPerPackage, posZ, posY, posX, jobs);
-    //
+    // Definition nach Cache
+    float cacheFracture = 2;
+    unsigned int imagePrecision = 8;
+    //Anzahl doubles per thread
+    float workSegment = (float) L3CACHE_SIZE/(cacheFracture*imagePrecision*nCores); //[Doubles per thread]
+    //Anzahl der jobs mindestens, um L3 Größe einzuhalten (Anzahl der Stücke, die mind. geschnitten werden müssen)
+    float workPackages = (float)x*y*z/workSegment;
 
+    // Check that there is at least one package for each thread
+    if(workPackages < nCores) {
+        print("");
+        workPackages = nCores;
+    }
+    //berechne Elemente für jedes package
+    float imageFraction = 1/workPackages;
+    unsigned int elementsPerPackage = (unsigned int) x*y*z*imageFraction;
+    // TODO Hier kann man Größe auch forcen für tests
+    if (elementsPerPackage < 4) elementsPerPackage = 4;
 
+    // force layout: Für Interlacing muss hier einfach weiter geteilt werden, s.d. fullZ und fullY 0 werden, fullX = 0;
+    unsigned int posZ = floor((float)elementsPerPackage/(x*y));
+    unsigned int posY = floor((float)(elementsPerPackage-x*y*posZ)/x);
+    unsigned int posX = elementsPerPackage-posZ*y*z-posY*x;
 
-        float cachefracture = 1.5;
-        unsigned int precision = 8;
-        //Anzahl doubles per thread
-        float threadsize = (float) L3CACHE_SIZE/(cachefracture*precision*nCores);
-        //Anzahl der jobs mindestens, um L3 Größe einzuhalten (Anzahl der Stücke, die mind. geschnitten werden müssen)
-        float jobfraction = (float)(x)*y*z/threadsize;
-        if(jobfraction < nCores) {
-            print("");
-            jobfraction = nCores;
-        }
-        //Anzahl der Z maximal, um Größe per Job einzuhalten
-        float zpackage = z/jobfraction;
-        // Ungünstig, wenn andere dimensionen sehr groß sind...
-        if(zpackage < 1.) {
-            print("");
-            jobdimsize = 1.;
-            jobs = z;
-        } else{
-            jobdimsize = (int)zpackage;
-            jobs = ceil((float)z/jobdimsize);
-        }
-        threadArg = (Addsig2vol_param *) malloc (jobs * sizeof(Addsig2vol_param));
+    if (posZ > 0){
+        posX = 0;
+        posY = 0;
+        jobs = ceil((float)z/posZ);
+    }
+    if (posY > 0){
+        posX = 0;
+        posZ = 0;
+        jobs = ceil((float)y/posY)*z;
+    }
+    if (posX > 0){
+        posY = 0;
+        posZ = 0;
+        jobs = ceil((float)x/posX)*z*y;
+    }
+    jobdimsize = elementsPerPackage;
+    //print("elementsPerPackage: %i, posZ, posY, posX: %i %i %i, jobs: %i \n", elementsPerPackage, posZ, posY, posX, jobs);
+    threadArg = (Addsig2vol_param *) malloc (jobs * sizeof(Addsig2vol_param));
 }
 
 
@@ -302,158 +290,127 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     pthread_t mythread[NUMCORES]; //numCPU -1
     int rc = 0; //return-value from thread functions
     #endif
-    resetJobList(n_Xz, n_Yz, n_Zz);
     //NOTE: This must be set on 0, otherwise results doesnt match
-    float pix_vecz_buffer[100000][3]= {0};
+    float pix_vecz_buffer[600000][3]= {0};
     unsigned int n_Zz_start = 0;
     unsigned int n_Zz_num = 0;
     //unsigned int nCores = NUMCORES;
     unsigned int i = 0;
 
     ////////Z-Layer multithreading, use multi-threading if enough Z-layers imaged
-    if (n_Zz>1)
-    {
+
         //limit to usefull number
         if (n_Zz < nCores)  nCores = n_Zz;
+        resetJobList(n_Xz, n_Yz, n_Zz);
 
         #ifdef addsig2vol_debug
         print("Z-Dim multithreading\n");
         #endif
 
+        unsigned int posZ = floor((float)jobdimsize/(n_Xz*n_Yz));
+        unsigned int posY = floor((float)(jobdimsize-n_Xz*n_Yz*posZ)/n_Xz);
+        unsigned int posX = jobdimsize-posZ*n_Yz*n_Zz-posY*n_Xz;
+        unsigned int stepZ = posZ;
+        unsigned int stepY = posY;
+        unsigned int stepX = posX;
+        //print("\nposX, posY, posZ: %i %i %i\n", posX, posY, posZ);
+
+        if (posZ > 0){
+            posX = 0;
+            posY = 0;
+        }
+        if (posY > 0){
+            posX = 0;
+            posZ = 0;
+        }
+        if (posX > 0){
+            posY = 0;
+            posZ = 0;
+        }
+
+        if (posZ > 0){
+            posX = n_Xz;
+            posY = n_Yz;
+            jobs = ceil(n_Zz/posZ);
+        }
+        else if (posY > 0){
+            posX = n_Xz;
+            posZ = 1;
+            jobs = ceil(n_Yz/posY)*n_Zz;
+        }
+        else{
+            posY = 1;
+            posZ = 1;
+            jobs = ceil(n_Xz/posX)*n_Zz*n_Yz;
+        }
+        //print("\nposX, posY, posZ: %i %i %i\n", posX, posY, posZ);
+         unsigned int currentZ = 0;
+         unsigned int currentX = 0;
+         unsigned int currentY = 0;
+
+         int j = 0;
+
         //Generate parameter structs for Z-multithreading
-        for (i=0;i<jobs;i++) //WITH mainthread! (=)!
-        {
-            n_Zz_num  = jobdimsize;
-            n_Zz_start = n_Zz_num*i*n_Xz*n_Yz;
 
-            //set picture startpoint
-            pix_vecz_buffer[i][0]= *pix_vectz;
-            pix_vecz_buffer[i][1]= *(pix_vectz+1);
-            pix_vecz_buffer[i][2]= (*(pix_vectz+2))+n_Zz_num*i* (*resz);
-
-            //    print("thread %i: pixX, pixY, pixZ: %f %f %f\n", i, pix_vecz_buffer[i][0], pix_vecz_buffer[i][1], pix_vecz_buffer[i][2]);
-
-            if (i==jobs-1)
-            {      //compensated number for FLOOR/CEIL rounding probs
-                n_Zz_num = n_Zz - i*jobdimsize;
-            }
-
-
-            /* print("delta_address :  %p\n\n", (pix_vectz));
-            print("z :  %f\n\n", *(pix_vectz+2));
-            print("z_num :  %i\n\n", n_Zz_num);
-            print("z_start :  %i\n\n", n_Zz_start);
-            print("x :  %f\n\n", pix_vecz_buffer[i][0]);
-            print("y :  %f\n\n", pix_vecz_buffer[i][1]);
-            print("z :  %f\n\n", pix_vecz_buffer[i][2]);
-            print("p_x :  %p\n\n", &(pix_vecz_buffer[i][0]));*/
-
-            //fill parameter struct
-            threadArg[i].outz=outz+n_Zz_start;//
-            threadArg[i].AScanz=AScanz;
-            threadArg[i].n_AScanz=n_AScanz;
-            threadArg[i].bufferz=bufferz;
-            threadArg[i].pix_vectz=&(pix_vecz_buffer[i][0]);/*mxGetPr(pix_vect)*/
-            threadArg[i].n_Xz=n_Xz;
-            threadArg[i].rec_posz=rec_posz;
-            threadArg[i].send_posz=send_posz;
-            threadArg[i].speedz=speedz;
-            threadArg[i].resz=resz;
-            threadArg[i].timeintz=timeintz;
-            threadArg[i].AScan_complexz=AScan_complexz;
-            threadArg[i].buffer_complexz=buffer_complexz;
-            threadArg[i].out_complexz=out_complexz+n_Zz_start;//
-            threadArg[i].n_Yz=n_Yz;
-            threadArg[i].n_Zz=n_Zz_num;/*n_Zz*/
-            threadArg[i].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
-            threadArg[i].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
-        }
-    }
-    else
-    {
-
-        //Y-DIM multithreading because Z-layer = 1, use multithreading if enough Y-layers imaged
-        if (n_Yz>1)
-        {
-            //limit to usefull number
-            if (n_Yz < nCores)  nCores = n_Yz;
-
-            #ifdef addsig2vol_debug
-            print("Y-Dim multithreading\n");
-            #endif
-
-            //Generate parameter structs for Y-multithreading
-            for (i=0;i<=nCores-1;i++) //WITH mainthread! (=)!
+            while(currentZ < n_Zz)
             {
-                n_Zz_num  = (unsigned int)(floor(n_Yz/nCores));
-                n_Zz_start = n_Zz_num*i*n_Xz;
+                unsigned int resZ = n_Zz - currentZ;
+                stepZ = posZ;
+                if (stepZ > resZ) stepZ = resZ;
 
-                //set picture startpoint
-                pix_vecz_buffer[i][0]= *pix_vectz;
-                pix_vecz_buffer[i][1]= (*(pix_vectz+1))+n_Zz_num*i* *resz;
-                pix_vecz_buffer[i][2]= *(pix_vectz+2);
+                while(currentY < n_Yz)
+                {
+                    unsigned int resY = n_Yz - currentY;
+                    stepY = posY;
+                    if (stepY > resY) stepY = resY;
+                        while(currentX < n_Xz)
+                        {
+                            unsigned int resX = n_Xz - currentX;
+                            stepX = posX;
+                            if (stepX > resX) stepX = resX;
+                                //print("j:%i, Y:%i Z:%i\n", j, stepY, stepZ);
+                                //set picture startpoint
+                                pix_vecz_buffer[j][0]= *pix_vectz+currentX* (*resz);;
+                                pix_vecz_buffer[j][1]= *(pix_vectz+1)+currentY* (*resz);
+                                pix_vecz_buffer[j][2]= (*(pix_vectz+2))+currentZ* (*resz);
+                                int n_Zz_start = currentZ*n_Xz*n_Yz + currentY*n_Xz + currentX;
 
-                if (i==nCores-1)
-                {      //compensated number for FLOOR/CEIL rounding probs
-                    n_Zz_num = (unsigned int)(n_Yz-floor(n_Yz/nCores)*(nCores-1));
-                }
+                                //fill parameter struct
+                                threadArg[j].outz=outz+n_Zz_start;//
+                                threadArg[j].AScanz=AScanz;
+                                threadArg[j].n_AScanz=n_AScanz;
+                                threadArg[j].bufferz=bufferz;
+                                threadArg[j].pix_vectz=&(pix_vecz_buffer[j][0]);/*mxGetPr(pix_vect)*/
+                                threadArg[j].n_Xz=stepX;
+                                threadArg[j].rec_posz=rec_posz;
+                                threadArg[j].send_posz=send_posz;
+                                threadArg[j].speedz=speedz;
+                                threadArg[j].resz=resz;
+                                threadArg[j].timeintz=timeintz;
+                                threadArg[j].AScan_complexz=AScan_complexz;
+                                threadArg[j].buffer_complexz=buffer_complexz;
+                                threadArg[j].out_complexz=out_complexz+n_Zz_start;//
+                                threadArg[j].n_Yz=stepY;
+                                threadArg[j].n_Zz=stepZ;/*n_Zz*/
+                                threadArg[j].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
+                                threadArg[j].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
 
-                //fill parameter struct
-                threadArg[i].outz=outz+n_Zz_start;//
-                threadArg[i].AScanz=AScanz;
-                threadArg[i].n_AScanz=n_AScanz;
-                threadArg[i].bufferz=bufferz;
-                threadArg[i].pix_vectz=&(pix_vecz_buffer[i][0]);/*mxGetPr(pix_vect)*/
-                threadArg[i].n_Xz=n_Xz;
-                threadArg[i].rec_posz=rec_posz;
-                threadArg[i].send_posz=send_posz;
-                threadArg[i].speedz=speedz;
-                threadArg[i].resz=resz;
-                threadArg[i].timeintz=timeintz;
-                threadArg[i].AScan_complexz=AScan_complexz;
-                threadArg[i].buffer_complexz=buffer_complexz;
-                threadArg[i].out_complexz=out_complexz+n_Zz_start;//
-                threadArg[i].n_Yz=n_Zz_num; /*n_Yz*/
-                threadArg[i].n_Zz=n_Zz;
-                threadArg[i].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
-                threadArg[i].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
+                                j++;
+                                currentX+=stepX;
+                            }
+                    currentX = 0;
+                    currentY+=stepY;
+                    }
+                currentY = 0;
+                currentZ+=stepZ;
             }
-
-        } else
-        { //no multi-threading
-            nCores = 1;
-
-            #ifdef addsig2vol_debug
-            print("No multithreading\n");
-            #endif
-
-            //fill parameter struct
-            threadArg[nCores-1].outz=outz;//
-            threadArg[nCores-1].AScanz=AScanz;
-            threadArg[nCores-1].n_AScanz=n_AScanz;
-            threadArg[nCores-1].bufferz=bufferz;
-            threadArg[nCores-1].pix_vectz=pix_vectz;
-            threadArg[nCores-1].n_Xz=n_Xz;
-            threadArg[nCores-1].rec_posz=rec_posz;
-            threadArg[nCores-1].send_posz=send_posz;
-            threadArg[nCores-1].speedz=speedz;
-            threadArg[nCores-1].resz=resz;
-            threadArg[nCores-1].timeintz=timeintz;
-            threadArg[nCores-1].AScan_complexz=AScan_complexz;
-            threadArg[nCores-1].buffer_complexz=buffer_complexz;
-            threadArg[nCores-1].out_complexz=out_complexz;//
-            threadArg[nCores-1].n_Yz=n_Yz;
-            threadArg[nCores-1].n_Zz=n_Zz;
-            threadArg[nCores-1].IMAGE_SUMz=IMAGE_SUMz;//
-            threadArg[nCores-1].IMAGE_SUM_complexz=IMAGE_SUM_complexz; //
-        }
-    }
+            jobs = j;
 
     //interpol & X-SUM (in the case of NUMCORE=1 only call)
     #ifdef C_CODE
-    xsum_c(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
+    xsum_c(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
     #else
-    xsum_complex(&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1],&threadArg[nCores-1]);
+    xsum_complex(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
     #endif
 
     #ifdef SAVEDATA    ///// save buffers
@@ -464,7 +421,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     #endif
     nextJobWaiting = 0;
     ////release threads
-    for (i=0;i<nCores;i++)
+    for (int i=0;i<nCores;i++)
     {
 
         #ifdef p_threads
@@ -476,7 +433,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     //-> Because of threading! Not all finish the same time
 
     //catches threads again
-    for (i=0;i<nCores;i++)
+    for (int i=0;i<nCores;i++)
     {
         #ifdef p_threads
         rc = pthread_join ( mythread[i], NULL );
