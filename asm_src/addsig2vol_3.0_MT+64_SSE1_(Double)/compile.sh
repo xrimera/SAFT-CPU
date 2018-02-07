@@ -16,9 +16,10 @@ mkoctfile --mex -DMATLAB_MEX_FILE -v -I. -I/usr/include/octave-4.0.3/octave/ -I.
 #OK normal c mit main
 gcc -g -c -I./munit ./munit/munit.c -o ./builds/munit.o
 gcc -g -c -I./* -I/usr/include/octave-4.0.3/octave/ -I/usr/include as2v_array.c  -o ./builds/as2v_array.o
+gcc -g -c -I./* -I/usr/include timestats.c  -o ./builds/timestats.o
 gcc -g -DC_CODE -c -I./* -I/usr/include/octave-4.0.3/octave/ -I/usr/include addsig2vol_3.c -o./builds/addsig2vol_3_c.o
 gcc -g -DC_CODE -c -I./* -I/usr/include/octave-4.0.3/octave/ -I/usr/include -I./muni addsig2vol_3_unittests.c -o./builds/addsig2vol_3_unittests.o
-gcc -o ./builds/addsig2vol_3_asm.o ./addsig2vol_3_64.o ./builds/addsig2vol_3_unittests.o ./builds/munit.o ./builds/as2v_array.o ./builds/addsig2vol_3_c.o  -lm -lpthread -o ./builds/linkedc
+gcc -o ./builds/addsig2vol_3_asm.o ./addsig2vol_3_64.o ./builds/addsig2vol_3_unittests.o ./builds/munit.o ./builds/as2v_array.o ./builds/timestats.o ./builds/addsig2vol_3_c.o  -lm -lpthread -o ./builds/linkedc
 
 
 #gcc -g -c -I./* -I/usr/include/octave-4.0.3/octave/ -I/usr/include as2v_array.c -o ./builds/as2v_array.o

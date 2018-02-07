@@ -27,6 +27,8 @@
 #include "pstdint_new.h"
 #endif
 
+#include "timestats.h"
+
 
 
 //extern __declspec(dllimport) int _imp_pthread_join();
@@ -185,7 +187,6 @@ uint64_t TimeCounter(void);
 
 //fpu
 void fpu_check(void);
-
 void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, float*pix_vectz,
 		    unsigned int n_Xz, float*rec_posz, float*send_posz, float*speedz, float*resz,
 		    float*timeintz, double*AScan_complexz,
@@ -253,6 +254,8 @@ void resetJobList(unsigned int x, unsigned int y, unsigned int z)
     // TODO Hier kann man Größe auch forcen für tests
     if (elementsPerPackage < 4) elementsPerPackage = 4;
 
+    //elementsPerPackage = 4;
+
     // force layout: Für Interlacing muss hier einfach weiter geteilt werden, s.d. fullZ und fullY 0 werden, fullX = 0;
     unsigned int posZ = floor((float)elementsPerPackage/(x*y));
     unsigned int posY = floor((float)(elementsPerPackage-x*y*posZ)/x);
@@ -280,33 +283,36 @@ void resetJobList(unsigned int x, unsigned int y, unsigned int z)
 
 
 void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, float*pix_vectz,
-		    unsigned int n_Xz, float*rec_posz, float*send_posz, float*speedz, float*resz,
-		    float*timeintz, double*AScan_complexz,
-		    double*buffer_complexz, double*out_complexz, unsigned int n_Yz, unsigned int n_Zz,
-		    double *IMAGE_SUMz, double *IMAGE_SUM_complexz)
-{
-    //pthread variables
-    #ifdef p_threads
-    pthread_t mythread[NUMCORES]; //numCPU -1
-    int rc = 0; //return-value from thread functions
-    #endif
-    //NOTE: This must be set on 0, otherwise results doesnt match
-    float pix_vecz_buffer[600000][3]= {0};
-    unsigned int n_Zz_start = 0;
-    unsigned int n_Zz_num = 0;
-    //unsigned int nCores = NUMCORES;
-    unsigned int i = 0;
+    unsigned int n_Xz, float*rec_posz, float*send_posz, float*speedz, float*resz,
+    float*timeintz, double*AScan_complexz,
+    double*buffer_complexz, double*out_complexz, unsigned int n_Yz, unsigned int n_Zz,
+    double *IMAGE_SUMz, double *IMAGE_SUM_complexz)
+    {
+        tsclock(8);
+        //pthread variables
+        #ifdef p_threads
+        pthread_t mythread[NUMCORES]; //numCPU -1
+        int rc = 0; //return-value from thread functions
+        #endif
+        //NOTE: This must be set on 0, otherwise results doesnt match
+        float pix_vecz_buffer[600000][3]= {0};
+        unsigned int n_Zz_start = 0;
+        //unsigned int nCores = NUMCORES;
+        unsigned int i = 0;
 
-    ////////Z-Layer multithreading, use multi-threading if enough Z-layers imaged
+        ////////Z-Layer multithreading, use multi-threading if enough Z-layers imaged
 
         //limit to usefull number
         if (n_Zz < nCores)  nCores = n_Zz;
+
+        nCores = 1;
         resetJobList(n_Xz, n_Yz, n_Zz);
+        tsclock(8);
 
         #ifdef addsig2vol_debug
         print("Z-Dim multithreading\n");
         #endif
-
+        tsclock(7);
         unsigned int posZ = floor((float)jobdimsize/(n_Xz*n_Yz));
         unsigned int posY = floor((float)(jobdimsize-n_Xz*n_Yz*posZ)/n_Xz);
         unsigned int posX = jobdimsize-posZ*n_Yz*n_Zz-posY*n_Xz;
@@ -314,19 +320,6 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         unsigned int stepY = posY;
         unsigned int stepX = posX;
         //print("\nposX, posY, posZ: %i %i %i\n", posX, posY, posZ);
-
-        if (posZ > 0){
-            posX = 0;
-            posY = 0;
-        }
-        if (posY > 0){
-            posX = 0;
-            posZ = 0;
-        }
-        if (posX > 0){
-            posY = 0;
-            posZ = 0;
-        }
 
         if (posZ > 0){
             posX = n_Xz;
@@ -343,117 +336,123 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             posZ = 1;
             jobs = ceil(n_Xz/posX)*n_Zz*n_Yz;
         }
-        //print("\nposX, posY, posZ: %i %i %i\n", posX, posY, posZ);
-         unsigned int currentZ = 0;
-         unsigned int currentX = 0;
-         unsigned int currentY = 0;
+        //print("Workpackage %i | posX, posY, posZ: %i %i %i | x, y, z: %i %i %i \n", jobdimsize, posX, posY, posZ, n_Xz, n_Yz, n_Zz);
+        unsigned int currentZ = 0;
+        unsigned int currentX = 0;
+        unsigned int currentY = 0;
 
-         int j = 0;
+        int j = 0;
 
         //Generate parameter structs for Z-multithreading
+        while(currentZ < n_Zz)
+        {
+            unsigned int resZ = n_Zz - currentZ;
+            stepZ = posZ;
+            if (stepZ > resZ) stepZ = resZ;
 
-            while(currentZ < n_Zz)
+            while(currentY < n_Yz)
             {
-                unsigned int resZ = n_Zz - currentZ;
-                stepZ = posZ;
-                if (stepZ > resZ) stepZ = resZ;
-
-                while(currentY < n_Yz)
+                unsigned int resY = n_Yz - currentY;
+                stepY = posY;
+                if (stepY > resY) stepY = resY;
+                while(currentX < n_Xz)
                 {
-                    unsigned int resY = n_Yz - currentY;
-                    stepY = posY;
-                    if (stepY > resY) stepY = resY;
-                        while(currentX < n_Xz)
-                        {
-                            unsigned int resX = n_Xz - currentX;
-                            stepX = posX;
-                            if (stepX > resX) stepX = resX;
-                                //print("j:%i, Y:%i Z:%i\n", j, stepY, stepZ);
-                                //set picture startpoint
-                                pix_vecz_buffer[j][0]= *pix_vectz+currentX* (*resz);;
-                                pix_vecz_buffer[j][1]= *(pix_vectz+1)+currentY* (*resz);
-                                pix_vecz_buffer[j][2]= (*(pix_vectz+2))+currentZ* (*resz);
-                                int n_Zz_start = currentZ*n_Xz*n_Yz + currentY*n_Xz + currentX;
+                    unsigned int resX = n_Xz - currentX;
+                    stepX = posX;
+                    if (stepX > resX) stepX = resX;
+                    //print("j:%i, Y:%i Z:%i\n", j, stepY, stepZ);
+                    //set picture startpoint
+                    pix_vecz_buffer[j][0]= *pix_vectz+currentX* (*resz);;
+                    pix_vecz_buffer[j][1]= *(pix_vectz+1)+currentY* (*resz);
+                    pix_vecz_buffer[j][2]= (*(pix_vectz+2))+currentZ* (*resz);
+                    int n_Zz_start = currentZ*n_Xz*n_Yz + currentY*n_Xz + currentX;
 
-                                //fill parameter struct
-                                threadArg[j].outz=outz+n_Zz_start;//
-                                threadArg[j].AScanz=AScanz;
-                                threadArg[j].n_AScanz=n_AScanz;
-                                threadArg[j].bufferz=bufferz;
-                                threadArg[j].pix_vectz=&(pix_vecz_buffer[j][0]);/*mxGetPr(pix_vect)*/
-                                threadArg[j].n_Xz=stepX;
-                                threadArg[j].rec_posz=rec_posz;
-                                threadArg[j].send_posz=send_posz;
-                                threadArg[j].speedz=speedz;
-                                threadArg[j].resz=resz;
-                                threadArg[j].timeintz=timeintz;
-                                threadArg[j].AScan_complexz=AScan_complexz;
-                                threadArg[j].buffer_complexz=buffer_complexz;
-                                threadArg[j].out_complexz=out_complexz+n_Zz_start;//
-                                threadArg[j].n_Yz=stepY;
-                                threadArg[j].n_Zz=stepZ;/*n_Zz*/
-                                threadArg[j].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
-                                threadArg[j].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
+                    //fill parameter struct
+                    threadArg[j].outz=outz+n_Zz_start;//
+                    threadArg[j].AScanz=AScanz;
+                    threadArg[j].n_AScanz=n_AScanz;
+                    threadArg[j].bufferz=bufferz;
+                    threadArg[j].pix_vectz=&(pix_vecz_buffer[j][0]);/*mxGetPr(pix_vect)*/
+                    threadArg[j].n_Xz=stepX;
+                    threadArg[j].rec_posz=rec_posz;
+                    threadArg[j].send_posz=send_posz;
+                    threadArg[j].speedz=speedz;
+                    threadArg[j].resz=resz;
+                    threadArg[j].timeintz=timeintz;
+                    threadArg[j].AScan_complexz=AScan_complexz;
+                    threadArg[j].buffer_complexz=buffer_complexz;
+                    threadArg[j].out_complexz=out_complexz+n_Zz_start;//
+                    threadArg[j].n_Yz=stepY;
+                    threadArg[j].n_Zz=stepZ;/*n_Zz*/
+                    threadArg[j].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
+                    threadArg[j].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
 
-                                j++;
-                                currentX+=stepX;
-                            }
-                    currentX = 0;
-                    currentY+=stepY;
-                    }
-                currentY = 0;
-                currentZ+=stepZ;
+                    j++;
+                    currentX+=stepX;
+                }
+                currentX = 0;
+                currentY+=stepY;
             }
-            jobs = j;
+            currentY = 0;
+            currentZ+=stepZ;
+        }
+        jobs = j;
+        tsclock(7);
 
-    //interpol & X-SUM (in the case of NUMCORE=1 only call)
-    #ifdef C_CODE
-    xsum_c(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
-    #else
-    xsum_complex(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
-    #endif
 
-    #ifdef SAVEDATA    ///// save buffers
-    mkdir("data/buffers", 0777);
-    char p[50];
-    sprintf(p, "data/buffers/buffer_%d", count);
-    saveDoubleArrayUnstruct(buffers, INTERP_RATIO * threadArg[nCores-1].n_AScanz, 1, 1, p)
-    #endif
-    nextJobWaiting = 0;
-    ////release threads
-    for (int i=0;i<nCores;i++)
-    {
+        //interpol & X-SUM (in the case of NUMCORE=1 only call)
+        #ifdef C_CODE
+        xsum_c(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
+        #else
+        xsum_complex(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
+        #endif
 
-        #ifdef p_threads
-        rc = pthread_create( &(mythread[i]), NULL, thread_function, &(threadArg[i]));
-        if (rc) { print("ERROR: return code from pthread_create() is %d\n", rc); return;}
+        #ifdef SAVEDATA    ///// save buffers
+        mkdir("data/buffers", 0777);
+        char p[50];
+        sprintf(p, "data/buffers/buffer_%d", count);
+        saveDoubleArrayUnstruct(buffers, INTERP_RATIO * threadArg[nCores-1].n_AScanz, 1, 1, p)
+        #endif
+        nextJobWaiting = 0;
+
+        tsclock(4);
+        tsclock(5);
+        ////release threads
+        for (int i=0;i<nCores;i++)
+        {
+
+            #ifdef p_threads
+            rc = pthread_create( &(mythread[i]), NULL, thread_function, &(threadArg[i]));
+            if (rc) { print("ERROR: return code from pthread_create() is %d\n", rc); return;}
+            #endif
+        }
+        tsclock(4);
+        // AT THIS POINT IMAGE_SUM_1 not OUT_0 anymore (from 0 t0 8?)
+        //-> Because of threading! Not all finish the same time
+
+        //catches threads again
+        for (int i=0;i<nCores;i++)
+        {
+            #ifdef p_threads
+            rc = pthread_join ( mythread[i], NULL );
+            if (rc) { print("ERROR: return code from pthread_join() is %d\n", rc); return;}
+            #endif
+        }
+        tsclock(5);
+
+        #ifdef SAVEDATA          ///// save outputs
+        mkdir("data/outputs", 0777);
+        char p1[50];
+        sprintf(p1, "data/outputs/outs_%d", count);
+        saveDoubleArrayUnstruct(outz, n_Xz, n_Yz, n_Zz, p1);
+        #endif
+
+        //set because because potentially reduced by imagesize
+        //if (nCores_bench >0) nCores = nCores_bench;
+        #ifdef SAVEDATA
+        count++;
         #endif
     }
-    // AT THIS POINT IMAGE_SUM_1 not OUT_0 anymore (from 0 t0 8?)
-    //-> Because of threading! Not all finish the same time
-
-    //catches threads again
-    for (int i=0;i<nCores;i++)
-    {
-        #ifdef p_threads
-        rc = pthread_join ( mythread[i], NULL );
-        if (rc) { print("ERROR: return code from pthread_join() is %d\n", rc); return;}
-        #endif
-    }
-
-    #ifdef SAVEDATA          ///// save outputs
-    mkdir("data/outputs", 0777);
-    char p1[50];
-    sprintf(p1, "data/outputs/outs_%d", count);
-    saveDoubleArrayUnstruct(outz, n_Xz, n_Yz, n_Zz, p1);
-    #endif
-
-    //set because because potentially reduced by imagesize
-    //if (nCores_bench >0) nCores = nCores_bench;
-    #ifdef SAVEDATA
-    count++;
-    #endif
-}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -643,6 +642,8 @@ free(sec_buffer);
 
     //Addsig2vol_param* arg = (Addsig2vol_param*) argument;
     while(1){
+        if (nextJobWaiting < jobs ) tsclock(2);
+
          pthread_mutex_lock(&MTlock);
          if(nextJobWaiting >= jobs){
              pthread_mutex_unlock(&MTlock);
@@ -652,6 +653,9 @@ free(sec_buffer);
          nextJobWaiting++;
          pthread_mutex_unlock(&MTlock);
         //imaging call with four times pointer to struct
+
+        tsclock(3);
+
         #ifdef C_CODE
         as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
         #else
@@ -659,6 +663,8 @@ free(sec_buffer);
         if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
 
         #endif
+        tsclock(3);
+        tsclock(2);
     }
    //decomposing for old function
    /* as2v_c(tt->outz, tt->AScanz, tt->n_AScanz, tt->bufferz, tt->pix_vectz,
@@ -666,7 +672,6 @@ free(sec_buffer);
 		    tt->timeintz, tt->AScan_complexz,
 		    tt->buffer_complexz, tt->out_complexz, tt->n_Yz, tt->n_Zz,
 		    tt->IMAGE_SUMz, tt->IMAGE_SUM_complexz);*/
-
      return NULL;
 }
 
@@ -730,7 +735,7 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
   print("Benchmarking System:\nLatency with %d Byte Image\nThroughput with %d kByte Image.\n",(int)(MIN_VOXEL*NUMCORES*sizeof(double)),(int)(nVoxel_throughput*nVoxel_throughput*nVoxel_throughput*sizeof(double))/1024);
   print("Threads | Throughput in MVoxel/s                     | Latency in nsec                              | Median-Size\n");
   print("        | Median | Mean   | Min    | Max    | Std    | Median    | Min       | Max       | Std      | \n");
-  print("-----------------------------------------------------------------------------------------------------------\n");
+  print("-------------------------------------------------------------------------------------------------------------------\n");
 
   //check for minimum amount
   if (nVoxel_throughput<NUMCORES*MIN_VOXEL) nVoxel_throughput=NUMCORES*MIN_VOXEL;
@@ -817,6 +822,8 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
          } while(counter2<counter); //retry on error like used wrong core
           average_buffer[j]= counter2-counter;
         }
+        //tsprint(1,TS_MILI);
+        //tsclear(1);
 
         //bubblesort (small time top) for median
 		  for (k=average-1;k>0;k--)
@@ -976,6 +983,17 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
                   counter2 = TimeCounter(); } while(counter2<counter); //retry on error like used wrong core
               average_buffer[j]= counter2-counter;
           }
+          tsprint(4,TS_MIKRO);
+          tsclear(4);
+          tsprint(5,TS_MIKRO);
+          tsprint(8,TS_MIKRO);
+          tsclear(8);
+          tsprint(7,TS_MIKRO);
+          tsclear(7);
+          tsclear(5);
+          tsclear(3);
+          tsclear(2);
+
           //bubblesort (small time top)
           for (k=minAverage-1;k>0;k--)
           {  for (l=minAverage-1;l>0;l--){
