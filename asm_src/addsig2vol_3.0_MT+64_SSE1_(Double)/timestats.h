@@ -1,19 +1,26 @@
 #ifndef TIMESTATS_H
 #define TIMESTATS_H
 
-#include "time.h"
+//------------------------------
+//Switches
+#define TS_ON // alle MEssungen an, incl print
+//#undef  TS_ON
+//------------------------------
 
-#define TS_TIMERS_N (32)
-#define TS_SEC   (1)
-#define TS_MILI  (1000)
-#define TS_MIKRO (1000000)
-#define TS_NANO  (1000000000)
+#include <sys/time.h>
+#include <stdlib.h>
+
+#define TS_TIMERS_N (50)
+#define TS_SEC   (.000000001)
+#define TS_MILI  (.000001)
+#define TS_MIKRO (.001)
+#define TS_NANO  (.1)
 
 //NOTE: clock() measures time the CPU is executing instruction belonging to this binary. Sleep/Wait doesn't perform any work;
-clock_t tsclock(unsigned int number);
+void tsclock(unsigned int number);
 
-void tsprintAll(unsigned int scale);
-void tsprint(unsigned int number, unsigned int scale);
+void tsprintAll(double timescale);
+void tsprint(unsigned int number, double timescale);
 
 void tsclear(unsigned int number);
 void tsclearAll();

@@ -2,6 +2,7 @@
 #include "addsig2vol_3.h"
 #include "addsig2vol_3_unittests.h"
 #include "as2v_array.h"
+#include "timestats.h"
 
 #include <unistd.h>
 #include <stdio.h>
@@ -277,11 +278,70 @@ int main(int argc, char* argv[MUNIT_ARRAY_PARAM(argc + 1)]) {
    // fix seed for random data generation
    //munit_rand_seed(5);
    // set printer color so we can see output easier
+
+
+   //RUN TEST
    as2v_setPrintCallback(&print);
    caSetPrintCallback(&print);
    printIntro();
    as2v_benchLocal();
    return munit_suite_main(&test_suite, (void*) "µnit", argc, argv);
+
+   // RUN SINGLE TASK
+
+
+       //
+       // unsigned int seed = time(NULL);
+       // srand(seed);
+       //
+       // unsigned int count = 10;
+       // unsigned int n_AScan = 1000;
+       // unsigned int x=128;
+       // float speedz[1] ={1500};
+       //
+       // double* array0 = malloc(x*x*x*sizeof(double));
+       // double* array1 = malloc(n_AScan*count*1*sizeof(double));
+       // float* array2 = malloc(3*sizeof(float));
+       // float* array3 = malloc(3*count*sizeof(float));
+       // float* array4 = malloc(3*count*sizeof(float));
+       // float* array5 = malloc(1*sizeof(float));
+       //
+       // cArrayDouble AScan    = caNewArrayDoubleFromData(array1, n_AScan, count, 1);
+       // cArrayFloat pix_vect  = caNewArrayFloatFromData(array2, 3, 1, 1);
+       // cArrayFloat rec_posz  = caNewArrayFloatFromData(array3, 3, count, 1);
+       // cArrayFloat send_posz = caNewArrayFloatFromData(array4, 3, count, 1);
+       // cArrayFloat speed     = caNewArrayFloatFromData(array5, 1, 1, 1);
+       //
+       // cArrayDouble IMAGE_SUM = caNewArrayDoubleFromData(array0, x, x, x);
+       //
+       // float timeintz[1] ={1e-7};
+       // float resz[1] ={0.001};
+       //
+       // for(int i =0; i<n_AScan;i++ ){
+       //     AScan.data[i] = (int)(rand()%2);
+       // }
+       // for(int j=1; j < count; j++){
+       //     for(int i =0; i<n_AScan;i++){
+       //         AScan.data[i+n_AScan*j] = AScan.data[i];
+       //     }
+       // }
+       // for(int i =0; i<count*3;i++)
+       // {   rec_posz.data[i] = 0.01*rand()/RAND_MAX;
+       //     send_posz.data[i] = 0.01*rand()/RAND_MAX;
+       // }
+       //
+       // tsclear(3);
+       // tsclear(11);
+       // for (int i =0; i< 10; i++){
+       // tsclock(49);
+       // as2v_results results = as2v_addsig2vol_3(&AScan, NULL,
+       //     &pix_vect, &rec_posz, &send_posz, &speed, resz, timeintz,
+       //     &IMAGE_SUM, NULL);
+       //     tsclock(49);
+       // }
+       // tsprint(49, TS_MIKRO);
+       // tsprint(3, TS_MIKRO);
+       // tsprint(11, TS_MIKRO);
 }
 
 
@@ -295,7 +355,7 @@ void runTests(){
 
 
 
-//
+
 // int main(){
 //
 //     unsigned int seed = time(NULL);
