@@ -177,6 +177,7 @@ static cArrayDouble cAbuffer_complex;
                unsigned int x;
                unsigned int y;
                unsigned int z;
+               unsigned int currentJob;
            } coordinate;
 
            enum axis { XAXIS, YAXIS, ZAXIS };
@@ -202,7 +203,11 @@ static cArrayDouble cAbuffer_complex;
         static unsigned int imgX = 0;
         static unsigned int imgY = 0;
         static unsigned int imgZ = 0;
-
+        static unsigned int halfJobs = 0;
+        static unsigned int fullJobs = 0;
+        static unsigned int halfStepZ = 0;
+        static unsigned int halfStepY = 0;
+        static unsigned int halfStepX = 0;
 //CPUcount
 uint64_t CPUCount(void);
 uint64_t TimeCounter(void);
@@ -266,6 +271,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     double*buffer_complexz, double*out_complexz, unsigned int n_Yz, unsigned int n_Zz,
     double *IMAGE_SUMz, double *IMAGE_SUM_complexz)
     {
+        tsclock(0);
+        tsclock(1);
         //pthread variables
         #ifdef p_threads
         pthread_t mythread[NUMCORES]; //numCPU -1
@@ -283,11 +290,11 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         globalPixPointer[1] = *(pix_vectz+1);
         globalPixPointer[2] = *(pix_vectz+2);
 
-        //nCores = 1;
+    //    nCores = 1;
         L3CACHE_SIZE = 3027000;
 
         // Definition nach Cache
-        float cacheFracture = 2;
+        float cacheFracture = 3;
         unsigned int imagePrecision = 8;
         //Anzahl doubles per thread
         float workSegment = (float) L3CACHE_SIZE/(cacheFracture*imagePrecision*nCores); //[Doubles per thread]
@@ -323,7 +330,9 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepZ = posZ;
             stepX = n_Xz;
             stepY = n_Yz;
-            jobs = ceil(n_Zz/posZ);
+            fullJobs = floor((float)n_Zz/posZ);
+            halfStepZ = n_Zz - fullJobs*stepZ;
+            jobs = ceil((float)n_Zz/posZ);
         }
         if (posY > 0){
             segmentedAxis = YAXIS;
@@ -332,6 +341,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepY=posY;
             stepX = n_Xz;
             stepZ = 1;
+            fullJobs = floor((float)n_Yz/posY);
+            halfStepY = n_Yz - fullJobs*stepY;
             jobs = ceil((float)n_Yz/posY)*n_Zz;
         }
         if (posX > 0){
@@ -341,11 +352,12 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepY = 1;
             stepZ = 1;
             stepX = posX;
+            fullJobs = floor((float)n_Xz/posX);
+            halfStepX = n_Xz - fullJobs*stepX;
             jobs = ceil((float)n_Xz/posX)*n_Yz*n_Zz;
         }
+
         //print("elementsPerPackage: %i, posZ, posY, posX: %i %i %i, jobs: %i \n", elementsPerPackage, posZ, posY, posX, jobs);
-
-
 
         #ifdef addsig2vol_debug
         print("Z-Dim multithreading\n");
@@ -375,6 +387,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             threadInfo[j].x = currentX;
             threadInfo[j].y = currentY;
             threadInfo[j].z = currentZ;
+            threadInfo[j].currentJob = j%(fullJobs+1);
+
 
             nextStepX = stepX;
             if(n_Xz-currentX<stepX) nextStepX = n_Xz-currentX;
@@ -403,7 +417,6 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             threadArg[j].IMAGE_SUMz=IMAGE_SUMz+n_Zz_start;//
             threadArg[j].IMAGE_SUM_complexz=IMAGE_SUM_complexz+n_Zz_start; //
             threadArg[j].qwb0 = j; // Thread ID, this is a hack
-
             // next start point
             currentX += posX;
             currentY += posY;
@@ -413,6 +426,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             if(currentZ >= n_Zz){} // finished, last case
         }
 
+        tsclock(1);
 
         //interpol & X-SUM (in the case of NUMCORE=1 only call)
             #ifdef C_CODE
@@ -429,6 +443,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         #endif
         nextJobWaiting = 0;
 
+        tsclock(2);
         ////release threads
         for (i=0;i<nCores;i++)
         {
@@ -449,6 +464,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             if (rc) { print("ERROR: return code from pthread_join() is %d\n", rc); return;}
             #endif
         }
+        tsclock(2);
 
         #ifdef SAVEDATA          ///// save outputs
         mkdir("data/outputs", 0777);
@@ -462,6 +478,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         #ifdef SAVEDATA
         count++;
         #endif
+        tsclock(0);
     }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -651,20 +668,22 @@ free(sec_buffer);
 {
         Addsig2vol_param* arg = (Addsig2vol_param*) argument;
         unsigned int id = arg->qwb0;
-        if(id == 0){tsclock(11);}
-
 
         float pix_vecz_buffer[3];
         float resz = *(arg->resz);
         unsigned int currentXn = threadInfo[id].x;
         unsigned int currentYn = threadInfo[id].y;
         unsigned int currentZn = threadInfo[id].z;
+        unsigned int currentJob = threadInfo[id].currentJob;
         //print("T%i: steps x,y,z: %i %i %i\n", id, stepX, stepY, stepZ);
-        int totalElementJumps;
-        int nextStepX;
-        int nextStepY;
-        int nextStepZ;
-            if(id == 0){tsclock(11);}
+        unsigned int totalElementJumps;
+        unsigned int nextStepX;
+        unsigned int nextStepY;
+        unsigned int nextStepZ;
+        unsigned int oldCurrentX;
+        unsigned int oldCurrentY;
+        unsigned int jumps;
+        unsigned int jumpsZ;
         while(1){
 
         //print("T%i: jumped %i, next work starts on x,y,z: %i %i %i\n", id, totalElementJumps,currentXn, currentYn, currentZn);
@@ -689,64 +708,66 @@ free(sec_buffer);
 
             if(id == 0){tsclock(12);}
 
-            totalElementJumps = 0;
+            currentJob += nCores;
+            jumps = floor(currentJob/(fullJobs+1));
+            currentJob = currentJob % (fullJobs+1);
 
             switch(segmentedAxis){
                 case ZAXIS:;
-                    for (int j=0; j< nCores; j++){
-                        nextStepZ = posZ;
-                        if(imgZ-currentZn<posZ) nextStepZ = imgZ-currentZn;
-                        currentZn += nextStepZ;
-                        totalElementJumps+= nextStepZ*imgX*imgY;
-                        if(currentZn >= imgZ){if(id == 0){tsclock(12);}return NULL;} // finished, last case
+                    if(jumps>0){if(id == 0){tsclock(12);}return NULL;} // finished, last case
+                    currentZn = currentJob*stepZ;
+                    nextStepZ = stepZ;
+                    totalElementJumps = nCores*stepZ*imgX*imgY;
+                    if(currentJob == fullJobs){
+                        nextStepZ = halfStepZ;
                     }
+                    nextStepX = imgX;
+                    nextStepY = imgY;
                     break;
+
                 case YAXIS:;
-                    for (int j=0; j< nCores; j++){
-                        nextStepY = posY;
-                        if(imgY-currentYn<posY) nextStepY = imgY-currentYn;
-                        currentYn += nextStepY;
-                        totalElementJumps+= nextStepY*imgX;
-                        if(currentYn >= imgY){ currentYn =0; currentZn++;}
-                        if(currentZn >= imgZ){if(id == 0){tsclock(12);}return NULL;} // finished, last case
+                    oldCurrentY = currentYn;
+                    currentYn = currentJob*stepY;
+                    currentZn = currentZn + jumps;
+                    if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
+
+                    nextStepY = stepY;
+                    if(jumps == 0) totalElementJumps = nCores*stepY*imgX;
+                    else totalElementJumps = (imgY-oldCurrentY)*imgX + currentYn*imgX +  (jumps-1)*imgY*imgX;
+                    if(currentJob == fullJobs){
+                        nextStepY = halfStepY;
                     }
+                    nextStepX = imgX;
+                    nextStepZ = 1;
                     break;
                 case XAXIS:;
-                        for (int j=0; j< nCores; j++){
-                            nextStepX = posX;
-                            if(imgX-currentXn<posX) nextStepX = imgX-currentXn;
-                            currentXn += nextStepX;
-                            totalElementJumps+= nextStepX;
-                            if(currentXn >= imgX){ currentXn =0; currentYn++;}
-                            if(currentYn >= imgY){ currentYn =0; currentZn++;}
-                            if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
-                        }break;
+                    oldCurrentX = currentXn;
+                    currentXn = currentJob*stepX;
+                    // Insgesamte Anzahl an jumps (overflow jumps)
+                    jumpsZ = floor(currentYn+jumps/imgY);
+                    if(jumpsZ == 0) currentYn = currentYn + jumps;
+                    else currentYn = jumps%imgY;
+                    currentZn = currentZn + jumpsZ;
+                    if(currentZn >= imgZ){if(id == 0){tsclock(12);}return NULL;} // finished, last case
 
+                    nextStepX = stepX;
+                    if(jumps == 0) totalElementJumps = nCores*stepX;
+                    // TODO ausrechnen!!
+                    else totalElementJumps = (imgX-oldCurrentX) + currentXn + jumps*imgX;
+
+                    if(currentJob== fullJobs){
+                        nextStepX = halfStepX;
+                    }
+                    nextStepY = 1;
+                    nextStepZ = 1;
+                    break;
 
             }
-
 
         pix_vecz_buffer[0]=globalPixPointer[0]+currentXn* (resz);
         pix_vecz_buffer[1]=globalPixPointer[1]+currentYn* (resz);
         pix_vecz_buffer[2]=globalPixPointer[2]+currentZn* (resz);
 
-        nextStepX = posX;
-        if(imgX-currentXn<posX) nextStepX = imgX-currentXn;
-        nextStepY = posY;
-        if(imgY-currentYn<posY) nextStepY = imgY-currentYn;
-        nextStepZ = posZ;
-        if(imgZ-currentZn<posZ) nextStepZ = imgZ-currentZn;
-
-        if(nextStepZ > 0){
-            nextStepX = imgX;
-            nextStepY = imgY;
-        } else if (nextStepY > 0){
-            nextStepX = imgX;
-            nextStepZ = 1;
-        } else {
-            nextStepY = 1;
-            nextStepZ = 1;
-        }
         //print("T%i: nextsteps x,y,z: %i %i %i\n", id, nextStepX, nextStepY, nextStepZ);
         arg->outz+=totalElementJumps;//
         arg->pix_vectz=&(pix_vecz_buffer[0]);//
@@ -1057,26 +1078,22 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
       {
           //print("i: %i, Nx: %i, Nz: %i \n", i, MIN_VOXEL, (uint32_t) floor(i/MIN_VOXEL) );
 
-          tsclear(7);
-            tsclear(3);
-            tsclear(2);
-             tsclear(8);
-             tsclear(5);
-             tsclear(4);
-              tsclear(11);
+
+             tsclear(0);
+             tsclear(1);
+              tsclear(2);
               tsclear(12);
           for (j=0;j<minAverage;j++)
           {
 
               do {
-                  tsclock(9);
                   counter=TimeCounter();
                   //no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
                   as2v_MT((out_bench), (AScan_bench), n_AScan, (buffer_bench),
                   &pix_vec_bench[0], (uint32_t) MIN_VOXEL, &rec_vec_bench[0], &send_vec_bench[0],
                   &float_bench,
                   &float_bench, &float_bench, NULL, NULL, NULL, (uint32_t) 1, (uint32_t) (i/MIN_VOXEL), (image_sum_bench), NULL);
-                  counter2 = TimeCounter(); tsclock(9); } while(counter2<counter); //retry on error like used wrong core
+                  counter2 = TimeCounter();  } while(counter2<counter); //retry on error like used wrong core
               average_buffer[j]= counter2-counter;
 
           }
@@ -1084,15 +1101,14 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
           // tsprint(5,TS_MIKRO);
           // tsprint(8,TS_MIKRO);
           // tsprint(7,TS_MIKRO);
-           tsprint(11,TS_MIKRO);
+           tsprint(0,TS_MIKRO);
+           tsprint(1,TS_MIKRO);
+           tsprint(2,TS_MIKRO);
            tsprint(12,TS_MIKRO);
-          tsclear(7);
-          tsclear(3);
-          tsclear(2);
-           tsclear(8);
-           tsclear(5);
-           tsclear(4);
-        tsclear(9);
+           tsclear(0);
+           tsclear(1);
+            tsclear(2);
+            tsclear(12);
           //bubblesort (small time top)
           for (k=minAverage-1;k>0;k--)
           {  for (l=minAverage-1;l>0;l--){
