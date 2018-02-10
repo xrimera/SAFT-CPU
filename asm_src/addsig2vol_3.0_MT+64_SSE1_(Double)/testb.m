@@ -16,7 +16,7 @@ for i=1:128
 
         while 1
             tic;
-            bild = addsig2vol_3(Data,single(IMAGE_STARTPOINT),single(receiverPos),single(senderPos),single(Speed),single(IMAGE_RESOLUTION),single(TimeInterval),uint32([x,x,x]),imagesum);
+            bild = addsig2vol_3_mex(Data,single(IMAGE_STARTPOINT),single(receiverPos),single(senderPos),single(Speed),single(IMAGE_RESOLUTION),single(TimeInterval),uint32([x,x,x]),imagesum);
             times(i,j,1)=toc;
             if times(i,j,1)<10^8 break; end %%workaround for ugly times
         end
@@ -31,7 +31,7 @@ for i=1:128
         while 1
             tic;
             for i=1:i
-                imagesum = addsig2vol_3(Data,single(IMAGE_STARTPOINT),single(receiverPos),single(senderPos),single(Speed),single(IMAGE_RESOLUTION),single(TimeInterval),uint32([x,x,x]),imagesum);
+                imagesum = addsig2vol_3_mex(Data,single(IMAGE_STARTPOINT),single(receiverPos),single(senderPos),single(Speed),single(IMAGE_RESOLUTION),single(TimeInterval),uint32([x,x,x]),imagesum);
             end
             times(i,j,2)=toc; if times(i,j,2)<10^8 break; end %%workaround for ugly times
         end

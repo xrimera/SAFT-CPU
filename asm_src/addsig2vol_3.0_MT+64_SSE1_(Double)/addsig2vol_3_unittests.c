@@ -198,7 +198,7 @@ test_as2v_IO(const MunitParameter params[], void* user_data) {
 
     as2v_results results = as2v_addsig2vol_3(&AScan_real, NULL,
         &pix_vect, &rec_pos, &send_pos, &speed, &res, &timeintz,
-        &IMAGE_SUM, NULL);
+        &IMAGE_SUM, NULL, NULL,NULL);
 
     cArrayDouble* outz = results.out_real;
     cArrayDouble* buffer = results.buffer_real;

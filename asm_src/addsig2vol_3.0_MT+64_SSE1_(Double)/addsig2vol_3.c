@@ -426,11 +426,12 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         tsclock(7);
 
         //interpol & X-SUM (in the case of NUMCORE=1 only call)
-        #ifdef C_CODE
+            #ifdef C_CODE
         xsum_c(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
         #else
         xsum_complex(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
-        #endif
+         #endif
+
         tsclock(7);
 
         #ifdef SAVEDATA    ///// save buffers
@@ -693,15 +694,17 @@ free(sec_buffer);
         if(id == 0){tsclock(11);}
 
         //print("T%i: call assembler code\n", id);
+
         #ifdef C_CODE
         as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
         #else
         if (addsig2vol_mode==0) as2v_complex(arg,arg,arg,arg);
         if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
 
+        #endif
+
         if(id == 0){tsclock(11);}
 
-        #endif
         if(id == 0){tsclock(3);}
 
    //decomposing for old function
@@ -1101,12 +1104,12 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
               average_buffer[j]= counter2-counter;
 
           }
-          tsprint(4,TS_MIKRO);
-          tsprint(5,TS_MIKRO);
-          tsprint(8,TS_MIKRO);
-          tsprint(7,TS_MIKRO);
-          tsprint(3,TS_MIKRO);
-          tsprint(9,TS_MIKRO);
+          // tsprint(4,TS_MIKRO);
+          // tsprint(5,TS_MIKRO);
+          // tsprint(8,TS_MIKRO);
+          // tsprint(7,TS_MIKRO);
+          // tsprint(3,TS_MIKRO);
+          // tsprint(9,TS_MIKRO);
           tsclear(7);
           tsclear(3);
           tsclear(2);
@@ -1337,7 +1340,7 @@ void as2v_overwriteBenchresultToThreadcount_n(uint32_t n){
 
 as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_complexz,
             cArrayFloat* pix_vectz, cArrayFloat* rec_posz, cArrayFloat* send_posz, cArrayFloat* speedz, float* resz, float* timeintz,
-		    cArrayDouble* IMAGE_SUM_realz, cArrayDouble* IMAGE_SUM_complexz)
+		    cArrayDouble* IMAGE_SUM_realz, cArrayDouble* IMAGE_SUM_complexz, cArrayDouble* outputImage, cArrayDouble* buffer)
 {
     as2v_results results = {NULL, NULL, NULL, NULL};
     //Check if minimal data is available...
@@ -1466,17 +1469,29 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
         }
 
         // malloc space for results
-        out_real = malloc(sizeof(double)*n_IMAGE);
-        buffer_real = malloc(sizeof(double)*n_AScan*INTERP_RATIO);
-        cAout_real = caNewArrayDoubleFromData(out_real, n_X, n_Y, n_Z);
-        cAbuffer_real = caNewArrayDoubleFromData(buffer_real, n_AScan*INTERP_RATIO, 1, 1);
+        if(outputImage){
+            out_real = outputImage->data;
+            //cAout_real = outputImage;
+        }else{
+            out_real = malloc(sizeof(double)*n_IMAGE);
+            cAout_real = caNewArrayDoubleFromData(out_real, n_X, n_Y, n_Z);
+        }
+
+        if(buffer){
+            buffer_real = buffer->data;
+            //cAbuffer_real = buffer;
+        }else{
+            buffer_real = malloc(sizeof(double)*n_AScan*INTERP_RATIO);
+            cAbuffer_real = caNewArrayDoubleFromData(buffer_real, n_AScan*INTERP_RATIO, 1, 1);
+        }
 
         if (AScan_complexz) {
             //we know that both AScan_complexz and IMAGE_SUM_complexz exist
-            out_complex = malloc(sizeof(double)*n_IMAGE);
-            buffer_complex = malloc(sizeof(double)*n_AScan*INTERP_RATIO);
-            cAout_complex = caNewArrayDoubleFromData(out_complex, n_X, n_Y, n_Z);
-            cAbuffer_complex = caNewArrayDoubleFromData(buffer_complex, n_AScan*INTERP_RATIO, 1, 1);
+            // TODO same as in REAL case
+            // out_complex = malloc(sizeof(double)*n_IMAGE);
+            // buffer_complex = malloc(sizeof(double)*n_AScan*INTERP_RATIO);
+            // cAout_complex = caNewArrayDoubleFromData(out_complex, n_X, n_Y, n_Z);
+            // cAbuffer_complex = caNewArrayDoubleFromData(buffer_complex, n_AScan*INTERP_RATIO, 1, 1);
         }
 
         #ifdef addsig2vol_debug

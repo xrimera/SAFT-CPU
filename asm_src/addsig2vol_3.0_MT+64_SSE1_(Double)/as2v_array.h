@@ -38,11 +38,7 @@
 #include <stdint.h>
 #include <float.h>
 
-#ifdef MATLAB_MEX_FILE
-    #define BUILD_WITH_MEX
-#endif
-
-#ifdef BUILD_WITH_MEX
+#ifdef BUILDMEX
     #include "mex.h"
 #endif
 
@@ -71,17 +67,17 @@
 
 // Define a custom array (Base class won't do anything)
 typedef struct {
-    unsigned int type, x, xpadded, y, z, len;
+    unsigned int type, x, y, z, len;
     void* data;
 } cArray;
 
 typedef struct {
-    unsigned int type, x, xpadded, y, z, len;
+    unsigned int type, x, y, z, len;
     double* data;
 } cArrayDouble;
 
 typedef struct {
-    unsigned int type, x, xpadded, y, z, len;
+    unsigned int type, x, y, z, len;
     float* data;
 } cArrayFloat;
 
@@ -113,10 +109,12 @@ void caUpdateData(cArray* array, void* data, unsigned int x, unsigned int y, uns
 char* concatPath(char* filename);
 
 
-#ifdef BUILD_WITH_MEX
+#ifdef BUILDMEX
+
 // NOTE: When mxArray is free'd, cArray will contain dangling pointers
 cArrayDouble caNewDoubleArrayFromMxarray(mxArray* mxa, mxComplexity flag);
 cArrayFloat caNewFloatArrayFromMxarray(mxArray* mxa, mxComplexity flag);
+void cArray2Mxarray(cArray* ca, mxArray* mxa, mxComplexity flag);
 // memcopy into mxarray
 mxArray* caNewMxarrayFromCArray(cArray* real, cArray* complex);
 #endif //BUILD_WITH_MEX

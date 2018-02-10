@@ -1,10 +1,11 @@
 #ifndef TIMESTATS_H
 #define TIMESTATS_H
 
+#define TS_ON
+
 //------------------------------
 //Switches
-#define TS_ON // alle MEssungen an, incl print
-//#undef  TS_ON
+#undef  TS_ON //schalte Timing aus
 //------------------------------
 
 #include <sys/time.h>

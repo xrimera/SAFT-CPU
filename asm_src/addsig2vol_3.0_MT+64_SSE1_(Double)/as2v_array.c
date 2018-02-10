@@ -179,14 +179,14 @@ char* concatPath(char* filename){
 }
 
 
-
-#ifdef BUILD_WITH_MEX
+// TODO How to pass flags from mkoctfile to here?
+#ifdef BUILDMEX
 
 //data gets copied, so you can free C array without losing mxArray
 // TODO change flag system
 cArrayDouble caNewDoubleArrayFromMxarray(mxArray* mxa, mxComplexity flag){
     cArrayDouble array = caNewArrayDouble();
-    cArray2Mxarray((cArray*)&array, mxa);
+    cArray2Mxarray((cArray*)&array, mxa, flag);
     return array;
 }
 
@@ -196,9 +196,9 @@ cArrayFloat caNewFloatArrayFromMxarray(mxArray* mxa, mxComplexity flag){
     return array;
 }
 
-
+// DIESE funktion wird verwendet, um mxarray nach carray zu hängen
+//NOTE Octave: Funktion OK
 void cArray2Mxarray(cArray* ca, mxArray* mxa, mxComplexity flag){
-    //as2v_doubleArray array;
     if (mxa){
         ca->len = (unsigned int) mxGetNumberOfElements(mxa);
         mwSize* dim = (mwSize*) mxGetDimensions(mxa);
@@ -210,23 +210,20 @@ void cArray2Mxarray(cArray* ca, mxArray* mxa, mxComplexity flag){
         switch (ca->type) {
             case CARRAY_DOUBLE: ;
                 cArrayDouble* cad = (cArrayDouble*) ca;
-                double* datad = malloc(cad->len*sizeof(double));
-                if (flag == mxCOMPLEX) memcpy(datad, (double*) mxGetPi(mxa), cad->len*sizeof(double));
-                else memcpy(datad, (double*) mxGetPr(mxa), cad->len*sizeof(double));
-                cad->data = datad;
+                if (flag == mxCOMPLEX) cad->data = (double*) mxGetPi(mxa);
+                else cad->data = (double*) mxGetPr(mxa);
                 break;
             case CARRAY_FLOAT: ;
                 cArrayFloat* caf = (cArrayFloat*) ca;
-                float* dataf = malloc(caf->len*sizeof(float));
-                if (flag == mxCOMPLEX) memcpy(dataf, (float*) mxGetPi(mxa), caf->len*sizeof(float));
-                else memcpy(dataf, (float*) mxGetPr(mxa), caf->len*sizeof(float));
-                caf->data = dataf;
+                if (flag == mxCOMPLEX) caf->data = (float*) mxGetPi(mxa);
+                else caf->data = (float*) mxGetPr(mxa);
                 break;
             default: ;
                 break;
         }
     }
 }
+
 
 // TODO
 //data gets copied, so you can free C array without losing mxArray

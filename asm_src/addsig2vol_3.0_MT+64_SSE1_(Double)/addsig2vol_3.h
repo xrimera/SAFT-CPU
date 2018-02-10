@@ -48,7 +48,7 @@ typedef struct
 //run algorithm
 as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_complexz,
             cArrayFloat* pix_vectz, cArrayFloat* rec_posz, cArrayFloat* send_posz, cArrayFloat* speedz, float* resz, float* timeintz,
-		    cArrayDouble* IMAGE_SUM_realz, cArrayDouble* IMAGE_SUM_complexz);
+		    cArrayDouble* IMAGE_SUM_realz, cArrayDouble* IMAGE_SUM_complexz, cArrayDouble* outputImage, cArrayDouble* buffer);
 
 //Some general information, also about the build version
 void printIntro();

@@ -3,9 +3,6 @@
 #include "mex.h"
 #include "addsig2vol_3_unittests.h"
 
-// use mexPrints to flush text from addsig2vol_3.c into MATLAB
-#define PRINT(string, ...) mexPrintf(string, ##__VA_ARGS__)
-
 //define matlab in and out
 #define out       (plhs[0])
 #define out2      (plhs[1])
@@ -19,6 +16,10 @@
 #define timeint   (prhs[6])
 #define IMAGE_XYZ (prhs[7])
 #define IMAGE_SUM (prhs[8])
+
+// Octave NOTE
+// - printf druckt nach Octave, und zwar zur Ausführzeit. mexprint druckt am Ende
+
 
 void upstreamCopiedDoubleArray(cArray* array)
 {
@@ -46,6 +47,11 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
     //setUpstreamDoubleArray_callback(upstreamCopiedDoubleArray);
     //setUpstreamFloatArray_callback(upstreamCopiedFloatArray);
 
+    // TODO unterscheiden zwischen Octave und Matlab bei Print Funktionen
+    as2v_setPrintCallback(&printf);
+    caSetPrintCallback(&printf);
+
+
     if (nlhs > 2) mexErrMsgTxt("Too many output arguments.");
 
     switch (nrhs) {
@@ -53,7 +59,7 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
             mexErrMsgTxt("Incorrect number of arguments.\n");
             break;
 
-        case 0:
+        case 0:;
             // Say hello
             printIntro();
             // Give plhs and prhs definitions
@@ -62,47 +68,61 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
             as2v_benchLocal();
             break;
 
-        case 1:
+        case 1:;
             // Force code to run on prhs[0] threads
             as2v_overwriteBenchresultToThreadcount_n((uint32_t) ceil(*((double*)mxGetPr(prhs[0]))));
 
-            runTests();
+            //runTests();
             break;
 
-        case 9:
+        case 9:;
             // Pre C99: No declarations next after label
             ;
 
-            // Box mxarrays into input arrays (data linked, not copied) -> Freeing will be done by MATLAB memory management
-            cArrayDouble AScan_realz = caNewDoubleArrayFromMxarray(&AScan, mxREAL);
-            cArrayDouble AScan_complexz = caNewDoubleArrayFromMxarray(&AScan, mxCOMPLEX);
-            cArrayDouble IMAGE_SUM_realz = caNewDoubleArrayFromMxarray(&IMAGE_SUM, mxREAL);
-            cArrayDouble IMAGE_SUM_complexz = caNewDoubleArrayFromMxarray(&IMAGE_SUM, mxCOMPLEX);
-            cArrayFloat pix_vectz = caNewFloatArrayFromMxarray(&pix_vect,  mxREAL);
-            cArrayFloat rec_posz = caNewFloatArrayFromMxarray(&rec_pos, mxREAL);
-            cArrayFloat send_posz = caNewFloatArrayFromMxarray(&send_pos,  mxREAL);
-            cArrayFloat speedz = caNewFloatArrayFromMxarray(&speed, mxREAL);
+            // printf("Ascan %p\n", AScan);
+            // printf("IMAGE_SUM %p\n", IMAGE_SUM);
+            // printf("pix_vectz %p\n", pix_vect);
+            // printf("rec_posz %p\n", rec_pos);
+            // printf("send_posz %p\n", send_pos);
+            // printf("speedz %p\n", speed);
 
-            // Run algorithm
+            //Box mxarrays into input arrays (data linked, not copied) -> Freeing will be done by MATLAB memory management
+            cArrayDouble AScan_realz = caNewDoubleArrayFromMxarray(AScan, mxREAL);
+            cArrayDouble AScan_complexz = caNewDoubleArrayFromMxarray(AScan, mxCOMPLEX);
+            cArrayDouble IMAGE_SUM_realz = caNewDoubleArrayFromMxarray(IMAGE_SUM, mxREAL);
+            cArrayDouble IMAGE_SUM_complexz = caNewDoubleArrayFromMxarray(IMAGE_SUM, mxCOMPLEX);
+            cArrayFloat pix_vectz = caNewFloatArrayFromMxarray(pix_vect,  mxREAL);
+            cArrayFloat rec_posz = caNewFloatArrayFromMxarray(rec_pos, mxREAL);
+            cArrayFloat send_posz = caNewFloatArrayFromMxarray(send_pos,  mxREAL);
+            cArrayFloat speedz = caNewFloatArrayFromMxarray(speed, mxREAL);
+
+
+            mwSize* dim = (mwSize*) mxGetDimensions(IMAGE_SUM);
+            mwSize numberOfDimensions = 3;
+            if(dim[2] == 1) numberOfDimensions = 2; //squeeze z away
+            out = mxCreateNumericArray(numberOfDimensions, dim, mxDOUBLE_CLASS, mxREAL);
+
+            printf("Calculating %i voxel image...\n", mxGetNumberOfElements(IMAGE_SUM));
+
+            mwSize* dimBuffer = (mwSize*) mxGetDimensions(AScan);
+            dimBuffer[0] =dimBuffer[0] *5; // TODO get INTERP_RATIO
+            numberOfDimensions = 1; //squeeze z away
+            out2 = mxCreateNumericArray(numberOfDimensions, dimBuffer, mxDOUBLE_CLASS, mxREAL);
+
+            // ANNahme: out und out 2 haben die richtige Größe für den Output.
+            cArrayDouble out_image = caNewDoubleArrayFromMxarray(out, mxREAL);
+            cArrayDouble out_buffer = caNewDoubleArrayFromMxarray(out2, mxREAL);
+
+
+            //Run algorithm
             as2v_results result = as2v_addsig2vol_3(&AScan_realz, &AScan_complexz,
             &pix_vectz, &rec_posz, &send_posz, &speedz, mxGetPr(res), mxGetPr(timeint),
-            &IMAGE_SUM_realz, &IMAGE_SUM_complexz);
+            &IMAGE_SUM_realz, &IMAGE_SUM_complexz, &out_image, &out_buffer);
 
-            // Copy output arrays into mxarrays
-            // These will be free'd by MATLAB memory management
-            out = caNewMxarrayFromCArray((result.out_real), (result.out_complex));
-            out2 = caNewMxarrayFromCArray((result.buffer_real), (result.buffer_complex));
+            // Octave/Matlab Spaltendominant?
+            //out_image.data[1] = 9999;
+            //caSave(&out_image, "octavetest");
 
-            // combined REAL & COMPLEX VERSION
-            //no sizeof(double) needed because compilers assumes already double as datatype for pointer!!!
-            //matlab seems to do some nasty errors on ptr to float...adding 8bytes instead of 4!!!! workaround implemented
-
-            // Results can be destroyed
-            free(result.out_real->data);
-            //free(result.out_complex.data);
-            // free(result.buffer_real.data);
-            // free(result.buffer_complex.data);
-            break;
         return;
     }
 }
