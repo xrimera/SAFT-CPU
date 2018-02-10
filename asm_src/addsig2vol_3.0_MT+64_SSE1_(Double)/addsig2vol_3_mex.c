@@ -78,7 +78,6 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
         case 9:;
             // Pre C99: No declarations next after label
             ;
-
             // printf("Ascan %p\n", AScan);
             // printf("IMAGE_SUM %p\n", IMAGE_SUM);
             // printf("pix_vectz %p\n", pix_vect);
@@ -98,21 +97,19 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
 
 
             mwSize* dim = (mwSize*) mxGetDimensions(IMAGE_SUM);
-            mwSize numberOfDimensions = 3;
-            if(dim[2] == 1) numberOfDimensions = 2; //squeeze z away
+            mwSize numberOfDimensions = mxGetNumberOfDimensions(IMAGE_SUM);
             out = mxCreateNumericArray(numberOfDimensions, dim, mxDOUBLE_CLASS, mxREAL);
 
-            printf("Calculating %i voxel image...\n", mxGetNumberOfElements(IMAGE_SUM));
+            //printf("Calculating %i voxel image...\n", mxGetNumberOfElements(IMAGE_SUM));
 
-            mwSize* dimBuffer = (mwSize*) mxGetDimensions(AScan);
-            dimBuffer[0] =dimBuffer[0] *5; // TODO get INTERP_RATIO
-            numberOfDimensions = 1; //squeeze z away
-            out2 = mxCreateNumericArray(numberOfDimensions, dimBuffer, mxDOUBLE_CLASS, mxREAL);
+            dim = (mwSize*) mxGetDimensions(AScan);
+            dim[0] = dim[0] *5; // TODO get INTERP_RATIO
+            numberOfDimensions = 1;
+            out2 = mxCreateNumericArray(numberOfDimensions, dim, mxDOUBLE_CLASS, mxREAL);
 
             // ANNahme: out und out 2 haben die richtige Größe für den Output.
             cArrayDouble out_image = caNewDoubleArrayFromMxarray(out, mxREAL);
             cArrayDouble out_buffer = caNewDoubleArrayFromMxarray(out2, mxREAL);
-
 
             //Run algorithm
             as2v_results result = as2v_addsig2vol_3(&AScan_realz, &AScan_complexz,
