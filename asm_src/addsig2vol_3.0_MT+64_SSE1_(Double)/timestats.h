@@ -5,7 +5,7 @@
 
 //------------------------------
 //Switches
-#undef  TS_ON //schalte Timing aus
+//#undef  TS_ON //schalte Timing aus
 //------------------------------
 
 #include <sys/time.h>
