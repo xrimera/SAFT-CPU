@@ -178,6 +178,7 @@ static cArrayDouble cAbuffer_complex;
                unsigned int y;
                unsigned int z;
                unsigned int currentJob;
+               unsigned int currentTotalJob;
            } coordinate;
 
            enum axis { XAXIS, YAXIS, ZAXIS };
@@ -187,6 +188,7 @@ static cArrayDouble cAbuffer_complex;
         static unsigned int jobs = 0;
         static unsigned int nextJobWaiting = 0;
         static coordinate threadInfo[NUMCORES];
+        pthread_mutex_t threadMutex;
         static float globalPixPointer[3];
         static int segmentedAxis = ZAXIS;
 
@@ -363,7 +365,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         #ifdef addsig2vol_debug
         print("Z-Dim multithreading\n");
         #endif
-
+        nextJobWaiting = 0;
 
         //print("elementsPerPackage %i, jobs %i | posX, posY, posZ: %i %i %i | x, y, z: %i %i %i \n", elementsPerPackage, jobs, posX, posY, posZ, n_Xz, n_Yz, n_Zz);
         unsigned int currentZ = 0;
@@ -389,6 +391,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             threadInfo[j].y = currentY;
             threadInfo[j].z = currentZ;
             threadInfo[j].currentJob = j%(fullJobs+1);
+            threadInfo[j].currentTotalJob = j;
 
             nextStepX = stepX;
             if(n_Xz-currentX<stepX) nextStepX = n_Xz-currentX;
@@ -428,6 +431,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             if(currentX >= n_Xz){ currentX =0; currentY++;}
             if(currentY >= n_Yz){ currentY =0; currentZ++;}
             if(currentZ >= n_Zz){} // finished, last case
+            nextJobWaiting++;
         }
 
         tsclock(1);
@@ -680,7 +684,9 @@ void *thread_function(void *argument)
        unsigned int currentYn = threadInfo[id].y;
        unsigned int currentZn = threadInfo[id].z;
        unsigned int currentJob = threadInfo[id].currentJob;
+       unsigned int currentTotalJob = threadInfo[id].currentTotalJob;
        //print("T%i: steps x,y,z: %i %i %i\n", id, stepX, stepY, stepZ);
+       unsigned int internJob;
        unsigned int totalElementJumps;
        unsigned int nextStepX;
        unsigned int nextStepY;
@@ -712,14 +718,22 @@ void *thread_function(void *argument)
            tt->buffer_complexz, tt->out_complexz, tt->n_Yz, tt->n_Zz,
            tt->IMAGE_SUMz, tt->IMAGE_SUM_complexz);*/
 
+
+           pthread_mutex_lock(&threadMutex);
+           nextJobWaiting++;
+           internJob = nextJobWaiting;
+           pthread_mutex_unlock(&threadMutex);
            if(id == 0){tsclock(12);}
-
-
-           currentJob += nCores;
-           jumps = floor(currentJob/(fullJobs+1));
-          // print("nextJob: %i, jumps: %i, job in fullvector: %i\n", currentJob, jumps, currentJob % (fullJobs+1));
-
+           // Anzahl der Jobsprünge (global)
+           int delta = (internJob-currentTotalJob);
+           print("T%i, delta: %i\n", id, delta);
+           // nächste Jobnummer dieses threads
+           currentTotalJob+= delta;
+           currentJob+= delta;
+           jumps = floor((currentJob)/(fullJobs+1));
            currentJob = currentJob % (fullJobs+1);
+
+           print("T%i, nextJob: %i, jumps: %i, next in fullvector: %i\n", id, currentTotalJob, jumps, currentJob);
 
            switch(segmentedAxis){
                case ZAXIS:;
