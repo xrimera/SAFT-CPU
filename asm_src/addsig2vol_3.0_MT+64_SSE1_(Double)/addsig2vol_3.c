@@ -294,7 +294,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         L3CACHE_SIZE = 3027000;
 
         // Definition nach Cache
-        float cacheFracture = 3;
+        float cacheFracture = 2;
         unsigned int imagePrecision = 8;
         //Anzahl doubles per thread
         float workSegment = (float) L3CACHE_SIZE/(cacheFracture*imagePrecision*nCores); //[Doubles per thread]
@@ -321,6 +321,9 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         posZ = floor((float)elementsPerPackage/(n_Xz*n_Yz));
         posY = floor((float)(elementsPerPackage-n_Xz*n_Yz*posZ)/n_Xz);
         posX = elementsPerPackage-posZ*n_Yz*n_Zz-posY*n_Xz;
+        // posX needs to multiple of 4;
+        posX -= posX%4;
+
 
         if (posZ > 0){
             segmentedAxis = ZAXIS;
@@ -357,14 +360,12 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             jobs = ceil((float)n_Xz/posX)*n_Yz*n_Zz;
         }
 
-        //print("elementsPerPackage: %i, posZ, posY, posX: %i %i %i, jobs: %i \n", elementsPerPackage, posZ, posY, posX, jobs);
-
         #ifdef addsig2vol_debug
         print("Z-Dim multithreading\n");
         #endif
 
 
-        //print("Workpackage %i | posX, posY, posZ: %i %i %i | x, y, z: %i %i %i \n", jobdimsize, posX, posY, posZ, n_Xz, n_Yz, n_Zz);
+        //print("elementsPerPackage %i, jobs %i | posX, posY, posZ: %i %i %i | x, y, z: %i %i %i \n", elementsPerPackage, jobs, posX, posY, posZ, n_Xz, n_Yz, n_Zz);
         unsigned int currentZ = 0;
         unsigned int currentX = 0;
         unsigned int currentY = 0;
@@ -376,7 +377,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
 
         for (j = 0; j<nCores; j++)
         {
-            //print("j:%i, Y:%i Z:%i\n", j, stepY, stepZ);
+
             //set picture startpoint
 
 
@@ -389,13 +390,16 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             threadInfo[j].z = currentZ;
             threadInfo[j].currentJob = j%(fullJobs+1);
 
-
             nextStepX = stepX;
             if(n_Xz-currentX<stepX) nextStepX = n_Xz-currentX;
             nextStepY = stepY;
             if(n_Yz-currentY<stepY) nextStepY = n_Yz-currentY;
             nextStepZ = stepZ;
             if(n_Zz-currentZ<stepZ) nextStepZ = n_Zz-currentZ;
+
+            if (nextStepX == 0) nextStepX++;
+            if (nextStepY == 0) nextStepY++;
+            if (nextStepZ == 0) nextStepZ++;
 
             //fill parameter struct
             threadArg[j].outz=outz+n_Zz_start;//
@@ -428,7 +432,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
 
         tsclock(1);
 
-        //interpol & X-SUM (in the case of NUMCORE=1 only call)
+    //    interpol & X-SUM (in the case of NUMCORE=1 only call)
             #ifdef C_CODE
         xsum_c(&threadArg[0],&threadArg[0],&threadArg[0],&threadArg[0]);
         #else
@@ -664,124 +668,135 @@ free(sec_buffer);
 
 ///////////////////////////////////////////////
 
- void *thread_function(void *argument)
+
+void *thread_function(void *argument)
 {
-        Addsig2vol_param* arg = (Addsig2vol_param*) argument;
-        unsigned int id = arg->qwb0;
+       Addsig2vol_param* arg = (Addsig2vol_param*) argument;
+       unsigned int id = arg->qwb0;
 
-        float pix_vecz_buffer[3];
-        float resz = *(arg->resz);
-        unsigned int currentXn = threadInfo[id].x;
-        unsigned int currentYn = threadInfo[id].y;
-        unsigned int currentZn = threadInfo[id].z;
-        unsigned int currentJob = threadInfo[id].currentJob;
-        //print("T%i: steps x,y,z: %i %i %i\n", id, stepX, stepY, stepZ);
-        unsigned int totalElementJumps;
-        unsigned int nextStepX;
-        unsigned int nextStepY;
-        unsigned int nextStepZ;
-        unsigned int oldCurrentX;
-        unsigned int oldCurrentY;
-        unsigned int jumps;
-        unsigned int jumpsZ;
-        while(1){
+       float pix_vecz_buffer[3];
+       float resz = *(arg->resz);
+       unsigned int currentXn = threadInfo[id].x;
+       unsigned int currentYn = threadInfo[id].y;
+       unsigned int currentZn = threadInfo[id].z;
+       unsigned int currentJob = threadInfo[id].currentJob;
+       //print("T%i: steps x,y,z: %i %i %i\n", id, stepX, stepY, stepZ);
+       unsigned int totalElementJumps;
+       unsigned int nextStepX;
+       unsigned int nextStepY;
+       unsigned int nextStepZ;
+       unsigned int oldCurrentX;
+       unsigned int oldCurrentY;
+       unsigned int oldCurrentZ;
+       unsigned int jumps;
+       unsigned int jumpsZ;
+       while(1){
 
-        //print("T%i: jumped %i, next work starts on x,y,z: %i %i %i\n", id, totalElementJumps,currentXn, currentYn, currentZn);
+       //print("T%i: jumped %i, next work starts on x,y,z: %i %i %i\n", id, totalElementJumps,currentXn, currentYn, currentZn);
 
 
-        //print("T%i: call assembler code\n", id);
+       //print("T%i: call assembler code\n", id);
 
-        #ifdef C_CODE
-        as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
-        #else
-        if (addsig2vol_mode==0) as2v_complex(arg,arg,arg,arg);
-        if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
+       #ifdef C_CODE
+       as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
+       #else
+       if (addsig2vol_mode==0) as2v_complex(arg,arg,arg,arg);
+   //    if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
 
-        #endif
+       #endif
 
-   //decomposing for old function
-   /* as2v_c(tt->outz, tt->AScanz, tt->n_AScanz, tt->bufferz, tt->pix_vectz,
-		    tt->n_Xz, tt->rec_posz, tt->send_posz, tt->speedz, tt->resz,
-		    tt->timeintz, tt->AScan_complexz,
-		    tt->buffer_complexz, tt->out_complexz, tt->n_Yz, tt->n_Zz,
-		    tt->IMAGE_SUMz, tt->IMAGE_SUM_complexz);*/
+  //decomposing for old function
+  /* as2v_c(tt->outz, tt->AScanz, tt->n_AScanz, tt->bufferz, tt->pix_vectz,
+           tt->n_Xz, tt->rec_posz, tt->send_posz, tt->speedz, tt->resz,
+           tt->timeintz, tt->AScan_complexz,
+           tt->buffer_complexz, tt->out_complexz, tt->n_Yz, tt->n_Zz,
+           tt->IMAGE_SUMz, tt->IMAGE_SUM_complexz);*/
 
-            if(id == 0){tsclock(12);}
+           if(id == 0){tsclock(12);}
 
-            currentJob += nCores;
-            jumps = floor(currentJob/(fullJobs+1));
-            currentJob = currentJob % (fullJobs+1);
 
-            switch(segmentedAxis){
-                case ZAXIS:;
-                    if(jumps>0){if(id == 0){tsclock(12);}return NULL;} // finished, last case
-                    currentZn = currentJob*stepZ;
-                    nextStepZ = stepZ;
-                    totalElementJumps = nCores*stepZ*imgX*imgY;
-                    if(currentJob == fullJobs){
-                        nextStepZ = halfStepZ;
-                    }
-                    nextStepX = imgX;
-                    nextStepY = imgY;
-                    break;
+           currentJob += nCores;
+           jumps = floor(currentJob/(fullJobs+1));
+          // print("nextJob: %i, jumps: %i, job in fullvector: %i\n", currentJob, jumps, currentJob % (fullJobs+1));
 
-                case YAXIS:;
-                    oldCurrentY = currentYn;
-                    currentYn = currentJob*stepY;
-                    currentZn = currentZn + jumps;
-                    if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
+           currentJob = currentJob % (fullJobs+1);
 
-                    nextStepY = stepY;
-                    if(jumps == 0) totalElementJumps = nCores*stepY*imgX;
-                    else totalElementJumps = (imgY-oldCurrentY)*imgX + currentYn*imgX +  (jumps-1)*imgY*imgX;
-                    if(currentJob == fullJobs){
-                        nextStepY = halfStepY;
-                    }
-                    nextStepX = imgX;
-                    nextStepZ = 1;
-                    break;
-                case XAXIS:;
-                    oldCurrentX = currentXn;
-                    currentXn = currentJob*stepX;
-                    // Insgesamte Anzahl an jumps (overflow jumps)
-                    jumpsZ = floor(currentYn+jumps/imgY);
-                    if(jumpsZ == 0) currentYn = currentYn + jumps;
-                    else currentYn = jumps%imgY;
-                    currentZn = currentZn + jumpsZ;
-                    if(currentZn >= imgZ){if(id == 0){tsclock(12);}return NULL;} // finished, last case
+           switch(segmentedAxis){
+               case ZAXIS:;
+                    //print("ZAXIS\n");
+                   currentZn +=nCores*stepZ;
+                   if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
 
-                    nextStepX = stepX;
-                    if(jumps == 0) totalElementJumps = nCores*stepX;
-                    // TODO ausrechnen!!
-                    else totalElementJumps = (imgX-oldCurrentX) + currentXn + jumps*imgX;
+                   nextStepZ = stepZ;
+                   totalElementJumps = nCores*stepZ*imgX*imgY;
+                   if(currentJob == fullJobs){
+                       nextStepZ = halfStepZ;
+                   }
+                   nextStepX = imgX;
+                   nextStepY = imgY;
+                   break;
 
-                    if(currentJob== fullJobs){
-                        nextStepX = halfStepX;
-                    }
-                    nextStepY = 1;
-                    nextStepZ = 1;
-                    break;
+               case YAXIS:;
+                    //print("YAXIS\n");
+                   oldCurrentY = currentYn;
+                   currentYn = currentJob*stepY;
+                   currentZn += jumps;
+                   if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
 
-            }
+                   nextStepY = stepY;
+                   if(jumps == 0) totalElementJumps = nCores*stepY*imgX;
+                   else totalElementJumps = (imgY-oldCurrentY)*imgX + currentYn*imgX +  (jumps-1)*imgY*imgX;
+                   if(currentJob == fullJobs){
+                       nextStepY = halfStepY;
+                   }
+                   nextStepX = imgX;
+                   nextStepZ = 1;
+                   break;
+               case XAXIS:;
+                    //print("XAXIS\n");
+                   oldCurrentX = currentXn;
+                   currentXn = currentJob*stepX;
+                   // Insgesamte Anzahl an jumps (overflow jumps)
+                   jumpsZ = floor(currentYn+jumps/imgY);
+                   if(jumpsZ == 0) currentYn = currentYn + jumps;
+                   else currentYn = jumps%imgY;
+                   currentZn += jumpsZ;
+                   if(currentZn >= imgZ){if(id == 0){tsclock(12);}return NULL;} // finished, last case
 
-        pix_vecz_buffer[0]=globalPixPointer[0]+currentXn* (resz);
-        pix_vecz_buffer[1]=globalPixPointer[1]+currentYn* (resz);
-        pix_vecz_buffer[2]=globalPixPointer[2]+currentZn* (resz);
+                   nextStepX = stepX;
+                   if(jumps == 0) totalElementJumps = nCores*stepX;
+                   // TODO ausrechnen!!
+                   else totalElementJumps = (imgX-oldCurrentX) + currentXn + jumps*imgX;
 
-        //print("T%i: nextsteps x,y,z: %i %i %i\n", id, nextStepX, nextStepY, nextStepZ);
-        arg->outz+=totalElementJumps;//
-        arg->pix_vectz=&(pix_vecz_buffer[0]);//
-        arg->n_Xz=nextStepX;
-        arg->out_complexz+=totalElementJumps;//
-        arg->n_Yz=nextStepY;
-        arg->n_Zz=nextStepZ;/*n_Zz*/
-        arg->IMAGE_SUMz+=totalElementJumps;//
-        arg->IMAGE_SUM_complexz+=totalElementJumps; //
+                   if(currentJob== fullJobs){
+                       nextStepX = halfStepX;
+                   }
+                   nextStepY = 1;
+                   nextStepZ = 1;
+                   break;
 
-        if(id == 0){tsclock(12);}
-    }
-     return NULL;
+           }
+
+       pix_vecz_buffer[0]=globalPixPointer[0]+currentXn* (resz);
+       pix_vecz_buffer[1]=globalPixPointer[1]+currentYn* (resz);
+       pix_vecz_buffer[2]=globalPixPointer[2]+currentZn* (resz);
+
+      // print("T%i: current x,y,z: %i %i %i\n", id, currentXn, currentYn, currentZn);
+      // print("T%i: nextsteps x,y,z: %i %i %i, totalElementJumps: %i\n", id, nextStepX, nextStepY, nextStepZ, totalElementJumps);
+       arg->outz+=totalElementJumps;//
+       arg->pix_vectz=&(pix_vecz_buffer[0]);//
+       arg->n_Xz=nextStepX;
+       arg->out_complexz+=totalElementJumps;//
+       arg->n_Yz=nextStepY;
+       arg->n_Zz=nextStepZ;/*n_Zz*/
+       arg->IMAGE_SUMz+=totalElementJumps;//
+       arg->IMAGE_SUM_complexz+=totalElementJumps; //
+
+       if(id == 0){tsclock(12);}
+   }
+    return NULL;
 }
+
 
 ////////////////////////////////////////////////////////////////////
 
