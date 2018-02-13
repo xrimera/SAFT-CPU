@@ -208,6 +208,7 @@ static cArrayDouble cAbuffer_complex;
         static unsigned int halfStepZ = 0;
         static unsigned int halfStepY = 0;
         static unsigned int halfStepX = 0;
+        int algostarts = 0;
 //CPUcount
 uint64_t CPUCount(void);
 uint64_t TimeCounter(void);
@@ -327,6 +328,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
 
         if (posZ > 0){
             segmentedAxis = ZAXIS;
+            //printf("ZAXIS\n");
             posX = 0;
             posY = 0;
             jobs = ceil((float)n_Zz/posZ);
@@ -339,6 +341,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         }
         if (posY > 0){
             segmentedAxis = YAXIS;
+            //printf("YAXIS\n");
+
             posX = 0;
             posZ = 0;
             stepY=posY;
@@ -350,6 +354,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         }
         if (posX > 0){
             segmentedAxis = XAXIS;
+            //printf("XAXIS\n");
+
             posY = 0;
             posZ = 0;
             stepY = 1;
@@ -449,6 +455,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
 
         tsclock(2);
         ////release threads
+
         for (i=0;i<nCores;i++)
         {
 
@@ -696,6 +703,7 @@ void *thread_function(void *argument)
 
 
        //print("T%i: call assembler code\n", id);
+       //printf("pixvektor x, y, z: %f %f %f\n",pix_vecz_buffer[0], pix_vecz_buffer[1], pix_vecz_buffer[2]);
 
        #ifdef C_CODE
        as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
@@ -717,23 +725,28 @@ void *thread_function(void *argument)
 
            currentJob += nCores;
            jumps = floor(currentJob/(fullJobs+1));
-          // print("nextJob: %i, jumps: %i, job in fullvector: %i\n", currentJob, jumps, currentJob % (fullJobs+1));
+          //print("nextJob: %i, jumps: %i, job in fullvector: %i\n", currentJob, jumps, currentJob % (fullJobs+1));
 
            currentJob = currentJob % (fullJobs+1);
 
            switch(segmentedAxis){
                case ZAXIS:;
                     //print("ZAXIS\n");
-                   currentZn +=nCores*stepZ;
+
+                   currentZn +=nCores*posZ;
                    if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
 
-                   nextStepZ = stepZ;
-                   totalElementJumps = nCores*stepZ*imgX*imgY;
+                   nextStepZ = posZ;
+                   totalElementJumps = nCores*posZ*imgX*imgY;
                    if(currentJob == fullJobs){
                        nextStepZ = halfStepZ;
                    }
                    nextStepX = imgX;
                    nextStepY = imgY;
+                  // nop();
+                   wait(0.000000001);
+                   //printf("T%i, currentZN, nextStep: %i %i \n", id, currentZn, nextStepZ);
+
                    break;
 
                case YAXIS:;
@@ -868,7 +881,7 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
 	////fix variables
     time_bench = malloc(sizeof(double));
 	n_AScan        = 3000;        //gesamtanzahl elemente IN EINEM ASCAN!!!
-	n_AScan_block  = 1;    //2 dim %number of parallel
+	n_AScan_block  = 100;    //2 dim %number of parallel
 
     //buffer
 
@@ -1531,6 +1544,7 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
             #ifdef addsig2vol_debug
             print("as2v_MT call %i:\n", i);
             #endif
+
             //check for complex ascan only increase if available because NULL-Pointer +something -> not anymore a nullpointer!
             if (AScan_complexz != NULL)	AScan_complexz = AScan_complexz + (n_AScan * (i - 1)); //set to next value
             if (1<n_rec_vec_block)  rec_vec_ptr  = rec_posz->data  + (3 * (i - 1)); else rec_vec_ptr = rec_posz->data;
@@ -1551,6 +1565,19 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
             //             mexCallMATLAB(0, NULL, 1, &recpos_output_buffer, "disp");
 
         }
+        // 
+        // if (segmentedAxis == ZAXIS){
+        //     printf("ZAXIS\n");
+        // }
+        // if (segmentedAxis == YAXIS){
+        //     printf("YAXIS\n");
+        // }
+        // if (segmentedAxis == XAXIS){
+        //     printf("XAXIS\n");
+        // }
+        // printf("img size x,y,z: %i %i %i\n", imgX, imgY, imgZ);
+        // printf("pos x,y,z: %i %i %i\n", posX, posY, posZ);
+        // printf("halfstep x,y,z: %i %i %i\n", halfStepX, halfStepY, halfStepZ);
 
         // store resulting image
         results.out_real = &cAout_real;
