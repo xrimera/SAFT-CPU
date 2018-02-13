@@ -339,6 +339,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepY = n_Yz;
             fullJobs = floor((float)n_Zz/posZ);
             halfStepZ = n_Zz - fullJobs*stepZ;
+            if (halfStepZ == 0) halfStepZ = stepZ;
+            else halfJobs = 1;
             jobs = ceil((float)n_Zz/posZ);
         }
         if (posY > 0){
@@ -352,6 +354,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepZ = 1;
             fullJobs = floor((float)n_Yz/posY);
             halfStepY = n_Yz - fullJobs*stepY;
+            if (halfStepY == 0) halfStepY = stepY;
+            else halfJobs = 1;
             jobs = ceil((float)n_Yz/posY)*n_Zz;
         }
         if (posX > 0){
@@ -365,13 +369,14 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepX = posX;
             fullJobs = floor((float)n_Xz/posX);
             halfStepX = n_Xz - fullJobs*stepX;
+            if (halfStepX == 0) halfStepX = stepX;
+            else halfJobs = 1;
             jobs = ceil((float)n_Xz/posX)*n_Yz*n_Zz;
         }
 
         #ifdef addsig2vol_debug
         print("Z-Dim multithreading\n");
         #endif
-        nextJobWaiting = 0;
 
         //print("elementsPerPackage %i, jobs %i | posX, posY, posZ: %i %i %i | x, y, z: %i %i %i \n", elementsPerPackage, jobs, posX, posY, posZ, n_Xz, n_Yz, n_Zz);
         unsigned int currentZ = 0;
@@ -396,7 +401,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             threadInfo[j].x = currentX;
             threadInfo[j].y = currentY;
             threadInfo[j].z = currentZ;
-            threadInfo[j].currentJob = j%(fullJobs+1);
+            threadInfo[j].currentJob = j%(fullJobs+halfJobs);
             threadInfo[j].currentTotalJob = j;
 
             nextStepX = stepX;
@@ -437,7 +442,6 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             if(currentX >= n_Xz){ currentX =0; currentY++;}
             if(currentY >= n_Yz){ currentY =0; currentZ++;}
             if(currentZ >= n_Zz){} // finished, last case
-            nextJobWaiting++;
         }
 
         tsclock(1);
@@ -455,7 +459,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         sprintf(p, "data/buffers/buffer_%d", count);
         saveDoubleArrayUnstruct(buffers, INTERP_RATIO * threadArg[nCores-1].n_AScanz, 1, 1, p)
         #endif
-        nextJobWaiting = 0;
+        nextJobWaiting = nCores;
 
         tsclock(2);
         ////release threads
@@ -703,6 +707,7 @@ void *thread_function(void *argument)
        unsigned int oldCurrentZ;
        unsigned int jumps;
        unsigned int jumpsZ;
+       unsigned int delta;
        while(1){
 
        //print("T%i: jumped %i, next work starts on x,y,z: %i %i %i\n", id, totalElementJumps,currentXn, currentYn, currentZn);
@@ -728,39 +733,43 @@ void *thread_function(void *argument)
 
 
            pthread_mutex_lock(&threadMutex);
-           nextJobWaiting++;
+           // print("T%i, lastJob: %i, lastJumps: %i, in fullvector: %i\n", id, currentTotalJob, jumps, currentJob);
+           // Mind the order
            internJob = nextJobWaiting;
+             nextJobWaiting++;
            pthread_mutex_unlock(&threadMutex);
            if(id == 0){tsclock(12);}
            // Anzahl der Jobsprünge (global)
-           int delta = (internJob-currentTotalJob);
-           print("T%i, delta: %i\n", id, delta);
+           delta = (internJob-currentTotalJob);
+           //print("T%i, delta: %i\n", id, delta);
            // nächste Jobnummer dieses threads
            currentTotalJob+= delta;
            currentJob+= delta;
-           jumps = floor((currentJob)/(fullJobs+1));
-           currentJob = currentJob % (fullJobs+1);
+           jumps = floor((float)(currentJob)/(fullJobs+halfJobs));
+           currentJob = currentJob % (fullJobs+halfJobs);
 
-           print("T%i, nextJob: %i, jumps: %i, next in fullvector: %i\n", id, currentTotalJob, jumps, currentJob);
+          // printf("T%i: delta %i, nextinternJob %i, modulo %i, jumps %i  \n", id, delta, currentTotalJob, currentJob, jumps);
+          // printf("T%i, lastCurrentZN %i, lastNextStep: %i \n", id, currentZn, nextStepZ);
 
            switch(segmentedAxis){
                case ZAXIS:;
                     //print("ZAXIS\n");
 
-                   currentZn +=nCores*posZ;
-                   if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
+                   currentZn = currentTotalJob*posZ;
+                    //printf("T%i, currentTotalJob %i/%i\n", id, currentTotalJob, fullJobs);
+                    //
+                    // printf("T%i, currentZn %i, nextStepZ: %i \n", id, currentZn, nextStepZ);
 
+                   if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
                    nextStepZ = posZ;
-                   totalElementJumps = nCores*posZ*imgX*imgY;
-                   if(currentJob == fullJobs){
+                   totalElementJumps = delta*posZ*imgX*imgY;
+                   if(currentJob ==  fullJobs+halfJobs-1){
                        nextStepZ = halfStepZ;
+                      // printf("FINAL RUN\n");
                    }
                    nextStepX = imgX;
                    nextStepY = imgY;
-                  // nop();
-                   wait(0.000000001);
-                   //printf("T%i, currentZN, nextStep: %i %i \n", id, currentZn, nextStepZ);
-
+                   //wait(0.000000001);
                    break;
 
                case YAXIS:;
@@ -773,7 +782,7 @@ void *thread_function(void *argument)
                    nextStepY = stepY;
                    if(jumps == 0) totalElementJumps = nCores*stepY*imgX;
                    else totalElementJumps = (imgY-oldCurrentY)*imgX + currentYn*imgX +  (jumps-1)*imgY*imgX;
-                   if(currentJob == fullJobs){
+                   if(currentJob ==  fullJobs+halfJobs-1){
                        nextStepY = halfStepY;
                    }
                    nextStepX = imgX;

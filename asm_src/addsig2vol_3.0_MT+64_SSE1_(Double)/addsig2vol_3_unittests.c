@@ -294,7 +294,7 @@ int main(int argc, char* argv[MUNIT_ARRAY_PARAM(argc + 1)]) {
        unsigned int seed = time(NULL);
        srand(seed);
 
-       unsigned int count = 1000;
+       unsigned int count = 10;
        unsigned int n_AScan = 250;
        unsigned int x=128;
        float speedz[1] ={1500};
