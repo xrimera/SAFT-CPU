@@ -96,15 +96,21 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
             cArrayFloat speedz = caNewFloatArrayFromMxarray(speed, mxREAL);
 
 
+
             mwSize* dim = (mwSize*) mxGetDimensions(IMAGE_SUM);
             mwSize numberOfDimensions = mxGetNumberOfDimensions(IMAGE_SUM);
             out = mxCreateNumericArray(numberOfDimensions, dim, mxDOUBLE_CLASS, mxREAL);
 
+            //
+            // printf("nAscan block: %i\n", AScan_realz.y);
+            // dim = (mwSize*) mxGetDimensions(AScan);
+            // printf("x y z : %i %i  ", dim[0], dim[1]);
             //printf("Calculating %i voxel image...\n", mxGetNumberOfElements(IMAGE_SUM));
 
             dim = (mwSize*) mxGetDimensions(AScan);
             dim[0] = dim[0] *5; // TODO get INTERP_RATIO
-            numberOfDimensions = 1;
+            dim[1] = 1; // TODO get INTERP_RATIO
+            numberOfDimensions = 2;
             out2 = mxCreateNumericArray(numberOfDimensions, dim, mxDOUBLE_CLASS, mxREAL);
 
             // ANNahme: out und out 2 haben die richtige Größe für den Output.

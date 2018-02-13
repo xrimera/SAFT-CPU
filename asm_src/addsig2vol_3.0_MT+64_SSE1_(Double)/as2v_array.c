@@ -202,6 +202,7 @@ void cArray2Mxarray(cArray* ca, mxArray* mxa, mxComplexity flag){
     if (mxa){
         ca->len = (unsigned int) mxGetNumberOfElements(mxa);
         mwSize* dim = (mwSize*) mxGetDimensions(mxa);
+
         ca->x = dim[0];
         ca->y = dim[1];
         //% workaround for matlab behaviour for size(IMAGE(1 x1x1))->reduced to 1 x1 (some kind of squeeze)
