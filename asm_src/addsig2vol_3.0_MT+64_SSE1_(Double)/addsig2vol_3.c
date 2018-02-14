@@ -337,6 +337,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepY = n_Yz;
             fullJobs = floor((float)n_Zz/posZ);
             halfStepZ = n_Zz - fullJobs*stepZ;
+            if (halfStepZ == 0) halfStepZ = stepZ;
+else halfJobs = 1;
             jobs = ceil((float)n_Zz/posZ);
         }
         if (posY > 0){
@@ -350,6 +352,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepZ = 1;
             fullJobs = floor((float)n_Yz/posY);
             halfStepY = n_Yz - fullJobs*stepY;
+            if (halfStepY == 0) halfStepY = stepY;
+else halfJobs = 1;
             jobs = ceil((float)n_Yz/posY)*n_Zz;
         }
         if (posX > 0){
@@ -363,6 +367,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             stepX = posX;
             fullJobs = floor((float)n_Xz/posX);
             halfStepX = n_Xz - fullJobs*stepX;
+            if (halfStepX == 0) halfStepX = stepX;
+ else halfJobs = 1;
             jobs = ceil((float)n_Xz/posX)*n_Yz*n_Zz;
         }
 
@@ -738,12 +744,12 @@ void *thread_function(void *argument)
 
                    nextStepZ = posZ;
                    totalElementJumps = nCores*posZ*imgX*imgY;
-                   if(currentJob == fullJobs){
+                   if(currentJob == fullJobs+halfJobs-1){
                        nextStepZ = halfStepZ;
+
                    }
                    nextStepX = imgX;
                    nextStepY = imgY;
-                  // nop();
                    wait(0.000000001);
                    //printf("T%i, currentZN, nextStep: %i %i \n", id, currentZn, nextStepZ);
 
@@ -759,8 +765,9 @@ void *thread_function(void *argument)
                    nextStepY = stepY;
                    if(jumps == 0) totalElementJumps = nCores*stepY*imgX;
                    else totalElementJumps = (imgY-oldCurrentY)*imgX + currentYn*imgX +  (jumps-1)*imgY*imgX;
-                   if(currentJob == fullJobs){
+                   if(currentJob == fullJobs+halfJobs-1){
                        nextStepY = halfStepY;
+
                    }
                    nextStepX = imgX;
                    nextStepZ = 1;
@@ -781,7 +788,7 @@ void *thread_function(void *argument)
                    // TODO ausrechnen!!
                    else totalElementJumps = (imgX-oldCurrentX) + currentXn + jumps*imgX;
 
-                   if(currentJob== fullJobs){
+                   if(currentJob== fullJobs+halfJobs-1){
                        nextStepX = halfStepX;
                    }
                    nextStepY = 1;
@@ -1565,7 +1572,7 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
             //             mexCallMATLAB(0, NULL, 1, &recpos_output_buffer, "disp");
 
         }
-        // 
+        //
         // if (segmentedAxis == ZAXIS){
         //     printf("ZAXIS\n");
         // }
