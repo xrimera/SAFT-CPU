@@ -6,14 +6,15 @@ voxel=voxelgenerator.+(4.-mod(voxelgenerator,4));
 voxel=unique(voxel)
 % Anzahl der AScans
 blocksize=1:5:31;
+AscanLength = 3000;
 % Anzahl der Messungen pro Konfiguration
-samples = 5;
+samples = 20;
 % timetable
 timesBlocked = zeros(length(blocksize),length(voxel),1:1:samples);
 timesUnblocked = zeros(length(voxel),1:1:samples);
 
 % Fixe Anzahl an threads
-addsig2vol_3_mex(2);
+addsig2vol_3_mex(4);
 
 % Rechne blocked-AScans
 for i=1:length(blocksize)
@@ -66,4 +67,7 @@ figure; plot(voxel,B');title('blocked')
 %%%SAFT von ascan unblocked, averaging time measurements
 %figure; imagesc(voxel,1:length(blocksize),voxel.^3./mean((times(1:length(blocksize),:,2))./repmat((1:length(blocksize))',[1 length(voxel)]))  ); colorbar, title('unblocked')
 figure; plot(voxel,(voxel.^3)./mean(timesUnblocked,2)');title('unblocked')
+
+
+
 
