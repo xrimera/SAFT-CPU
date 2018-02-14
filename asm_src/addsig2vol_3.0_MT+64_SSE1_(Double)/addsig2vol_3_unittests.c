@@ -294,9 +294,9 @@ int main(int argc, char* argv[MUNIT_ARRAY_PARAM(argc + 1)]) {
        unsigned int seed = time(NULL);
        srand(seed);
 
-       unsigned int count = 10;
+       unsigned int count = 100;
        unsigned int n_AScan = 250;
-       unsigned int x=128;
+       unsigned int x=220;
        float speedz[1] ={1500};
 
        double* array0 = malloc(x*x*x*sizeof(double));

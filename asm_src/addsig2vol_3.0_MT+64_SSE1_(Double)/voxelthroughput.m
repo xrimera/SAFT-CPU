@@ -1,12 +1,11 @@
 clear all()
 close all
 % Bildgröße x-Achse (Immer durch 4 teilbar. Vollständiges Bild kubisch)
-voxelgenerator=unique(round(2.^(2:0.05:8)))
+voxelgenerator=unique(round(2.^(2:0.1:8)))
 voxel=voxelgenerator.+(4.-mod(voxelgenerator,4));
 voxel=unique(voxel)
 % Anzahl der AScans
 blocksize=1:5:31;
-AscanLength = 3000;
 % Anzahl der Messungen pro Konfiguration
 samples = 5;
 % timetable
@@ -14,7 +13,7 @@ timesBlocked = zeros(length(blocksize),length(voxel),1:1:samples);
 timesUnblocked = zeros(length(voxel),1:1:samples);
 
 % Fixe Anzahl an threads
-addsig2vol_3_mex(4);
+addsig2vol_3_mex(2);
 
 % Rechne blocked-AScans
 for i=1:length(blocksize)
@@ -60,6 +59,9 @@ end
 %%%SAFT von ascan unblocked, averaging time measurements
 figure; imagesc(voxel,blocksize,(repmat(blocksize',[1 length(voxel)]).*voxel.^3)./mean(timesBlocked,3)); colorbar;title('blocked')
 figure; plot(voxel,(repmat(blocksize',[1 length(voxel)]).*voxel.^3)./mean(timesBlocked,3));title('blocked')
+
+B = mean(timesBlocked,3);
+figure; plot(voxel,B');title('blocked')
 
 %%%SAFT von ascan unblocked, averaging time measurements
 %figure; imagesc(voxel,1:length(blocksize),voxel.^3./mean((times(1:length(blocksize),:,2))./repmat((1:length(blocksize))',[1 length(voxel)]))  ); colorbar, title('unblocked')

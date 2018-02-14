@@ -775,12 +775,12 @@ void *thread_function(void *argument)
                case YAXIS:;
                     //print("YAXIS\n");
                    oldCurrentY = currentYn;
-                   currentYn = currentJob*stepY;
+                   currentYn = currentJob*posY;
                    currentZn += jumps;
                    if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
 
                    nextStepY = stepY;
-                   if(jumps == 0) totalElementJumps = nCores*stepY*imgX;
+                   if(jumps == 0) totalElementJumps = delta*stepY*imgX;
                    else totalElementJumps = (imgY-oldCurrentY)*imgX + currentYn*imgX +  (jumps-1)*imgY*imgX;
                    if(currentJob ==  fullJobs+halfJobs-1){
                        nextStepY = halfStepY;
@@ -1589,15 +1589,15 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
 
         }
         //
-        // if (segmentedAxis == ZAXIS){
-        //     printf("ZAXIS\n");
-        // }
-        // if (segmentedAxis == YAXIS){
-        //     printf("YAXIS\n");
-        // }
-        // if (segmentedAxis == XAXIS){
-        //     printf("XAXIS\n");
-        // }
+        if (segmentedAxis == ZAXIS){
+            printf("ZAXIS\n");
+        }
+        if (segmentedAxis == YAXIS){
+            printf("YAXIS\n");
+        }
+        if (segmentedAxis == XAXIS){
+            printf("XAXIS\n");
+        }
         // printf("img size x,y,z: %i %i %i\n", imgX, imgY, imgZ);
         // printf("pos x,y,z: %i %i %i\n", posX, posY, posZ);
         // printf("halfstep x,y,z: %i %i %i\n", halfStepX, halfStepY, halfStepZ);
