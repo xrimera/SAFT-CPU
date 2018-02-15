@@ -1545,6 +1545,7 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
         totalAscan = n_AScan_block;
         currentAscan = 0;
 
+        threadstats_clearAll();
         tssettimer();
         ////first Ascan
         // combined REAL & COMPLEX VERSION

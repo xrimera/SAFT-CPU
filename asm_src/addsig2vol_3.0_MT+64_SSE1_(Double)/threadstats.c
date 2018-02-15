@@ -18,16 +18,27 @@ void threadstats_init(unsigned int _nThreads, unsigned int _nTasks, unsigned int
     nThreads = _nThreads;
     nTasks = _nTasks;
     nReruns = _nReruns;
-    free(dataTimestamps);
-    free(dataMoveToTask);
-    free(dataThreadnumber);
-    dataTimestamps = malloc(nTasks*nReruns*sizeof(double));
-    dataMoveToTask = malloc(nTasks*nReruns*sizeof(double));
-    dataThreadnumber = malloc(nTasks*nReruns*sizeof(double));
-    arrayTimestamps = caNewArrayDoubleFromData(dataTimestamps, nTasks, nReruns, 1);
-    arrayMoveToTask = caNewArrayDoubleFromData(dataMoveToTask, nTasks, nReruns, 1);
-    arrayThreadnumber = caNewArrayDoubleFromData(dataThreadnumber, nTasks, nReruns, 1);
+    if(!dataTimestamps){
+        free(dataTimestamps);
+        free(dataMoveToTask);
+        free(dataThreadnumber);
+        dataTimestamps = malloc(nTasks*nReruns*sizeof(double));
+        dataMoveToTask = malloc(nTasks*nReruns*sizeof(double));
+        dataThreadnumber = malloc(nTasks*nReruns*sizeof(double));
+        arrayTimestamps = caNewArrayDoubleFromData(dataTimestamps, nTasks, nReruns, 1);
+        arrayMoveToTask = caNewArrayDoubleFromData(dataMoveToTask, nTasks, nReruns, 1);
+        arrayThreadnumber = caNewArrayDoubleFromData(dataThreadnumber, nTasks, nReruns, 1);
+    }
     //printf("nThreads %i, nTasks %i, nReruns %i\n", nThreads, nTasks, nReruns);
+}
+
+void threadstats_clearAll(){
+    free(dataTimestamps);
+    dataTimestamps = NULL;
+    free(dataMoveToTask);
+    dataMoveToTask = NULL;
+    free(dataThreadnumber);
+    dataThreadnumber = NULL;
 }
 
 void threadstats_mark(unsigned int thread, unsigned int currentTask, unsigned int run){
@@ -35,6 +46,7 @@ void threadstats_mark(unsigned int thread, unsigned int currentTask, unsigned in
     static unsigned int counter = 0;
     static unsigned int pointer;
     pointer = run*nTasks+counter;
+
 
     *(dataTimestamps+pointer) = getSumTime(thread, TS_MIKRO);
     *(dataMoveToTask+pointer) = (double) currentTask;

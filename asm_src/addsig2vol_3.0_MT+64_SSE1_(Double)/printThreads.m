@@ -8,7 +8,7 @@ Speed=1500;
 TimeInterval=1e-7;
 DataLength=1000;
 Data=floor(rand(DataLength,count).*2);
-x=120;
+x=100;
 
 
 addsig2vol_3_mex(4);
@@ -17,8 +17,6 @@ tic;
 t1 = toc
 
 
-
-lastTask = max(n4(1,:));
 % Plotte Reihenfolge der tasks 
 figure;
 plot(n3(1:count,:), n4(1:count,:), 'x'); hold on;
@@ -26,6 +24,7 @@ xlabel('time[ms]');
 ylabel('tasknumber[nacheinanderliegend im Speicher]');
 
 % Trennlinie pro AScan zeichnen
+lastTask = max(n4(1,:));
 for i=1:1:count
   plot([n3(i,1),n3(i,1)], [0,lastTask]);
 end
@@ -39,4 +38,5 @@ for j=1:1:lastTask+1
     text(n3(i,j)+dx, n4(i,j)+dy, c);
   end
 end
+
 hold off;
