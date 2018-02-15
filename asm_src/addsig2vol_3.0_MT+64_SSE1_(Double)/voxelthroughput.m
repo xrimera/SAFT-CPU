@@ -24,7 +24,7 @@ for i=1:length(blocksize)
         Data=zeros(AscanLength,count);
         Speed=1500+rand(1,count);
         %Data(floor(DataLength.*rand(count-1,1))+1,1:count)=1;
-        x=voxel(j); 
+        x=voxel(j);
         Data = rand(AscanLength,count);
         imagesum=zeros([x,x,x]);
 
@@ -44,7 +44,7 @@ for j=1:length(voxel)
       DataLength=AscanLength;
       Speed=1500+rand(1,count);
       Data=zeros(AscanLength,count);
-      x=voxel(j); 
+      x=voxel(j);
       Data = rand(AscanLength,count);
       imagesum=zeros([x,x,x]);
 

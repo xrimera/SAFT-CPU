@@ -18,6 +18,7 @@ extern cArrayDouble threadstats_arrayThreadnumber;
 
 void threadstats_init(unsigned int _nThreads, unsigned int _nTasks, unsigned int _nReruns);
 void threadstats_mark(unsigned int thread, unsigned int currentTask, unsigned int run);
+void threadstats_clearAll();
 
 cArrayDouble* threadstats_get_timestamps();
 cArrayDouble* threadstats_get_moveToTask();
