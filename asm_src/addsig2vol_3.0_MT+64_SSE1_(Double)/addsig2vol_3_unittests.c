@@ -3,6 +3,7 @@
 #include "addsig2vol_3_unittests.h"
 #include "as2v_array.h"
 #include "timestats.h"
+#include "threadstats.h"
 
 #include <unistd.h>
 #include <stdio.h>
@@ -294,9 +295,9 @@ int main(int argc, char* argv[MUNIT_ARRAY_PARAM(argc + 1)]) {
        unsigned int seed = time(NULL);
        srand(seed);
 
-       unsigned int count = 1000;
-       unsigned int n_AScan = 250;
-       unsigned int x=128;
+       unsigned int count = 20;
+       unsigned int n_AScan = 3000;
+       unsigned int x=50;
        float speedz[1] ={1500};
 
        double* array0 = malloc(x*x*x*sizeof(double));
@@ -345,7 +346,6 @@ int main(int argc, char* argv[MUNIT_ARRAY_PARAM(argc + 1)]) {
            tsclock(49);
            tsprint(49, TS_MIKRO);
        }
-
 }
 
 

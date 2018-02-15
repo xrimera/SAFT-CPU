@@ -89,11 +89,11 @@ void tsclearAll(){
             pthread_mutex_lock(&threadsafeMutex);
         #endif
         for(int i=0; i<TS_TIMERS_N; i++){
-            timers[number].sum = 0;
-            timers[number].diffsum = 0;
-            timers[number].last = 0;
-            timers[number].num = 0;
-            timers[number].ticking = 0;
+            timers[i].sum = 0;
+            timers[i].diffsum = 0;
+            timers[i].last = 0;
+            timers[i].num = 0;
+            timers[i].ticking = 0;
         }
         #ifdef TS_THREADSAFE
             pthread_mutex_unlock(&threadsafeMutex);

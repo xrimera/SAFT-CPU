@@ -23,22 +23,26 @@ cArrayFloat caNewArrayFloat(){ return cArrayFloatEmpty; }
 
 cArrayDouble caNewArrayDoubleFromData(double* data, unsigned int x, unsigned int y, unsigned int z){
     cArrayDouble array = caNewArrayDouble();
+    array.type = CARRAY_DOUBLE;
     caUpdateData((cArray*)&array, data, x, y, z);
     return array;
 }
 cArrayFloat caNewArrayFloatFromData(float* data, unsigned int x, unsigned int y, unsigned int z){
     cArrayFloat array = caNewArrayFloat();
+    array.type = CARRAY_FLOAT;
     caUpdateData((cArray*)&array, data, x, y, z);
     return array;
 }
 
 cArrayDouble caNewArrayDoubleFromFile(char* filename){
     cArrayDouble array = caNewArrayDouble();
+    array.type = CARRAY_DOUBLE;
     caLoad((cArray*)&array, filename);
     return array;
 }
 cArrayFloat caNewArrayFloatFromFile(char* filename){
     cArrayFloat array = caNewArrayFloat();
+    array.type = CARRAY_FLOAT;
     caLoad((cArray*)&array, filename);
     return array;
 }
@@ -161,24 +165,6 @@ void caLoad(cArray* array, char* filename){
 }
 
 
-char* concatPath(char* filename){
-    // if(strlen(filedir)>0)
-    // {
-    //     char path[2000];
-    //     strcpy(path, filedir);
-    //     strcpy(path+strlen(filedir), "/");
-    //     strcat(path+strlen(filedir)+1, filename);
-    //     printf(path);
-    //
-    //     return path;
-    // } else
-    // {
-    //     return filename;
-    // }
-
-}
-
-
 // TODO How to pass flags from mkoctfile to here?
 #ifdef BUILDMEX
 
@@ -186,12 +172,14 @@ char* concatPath(char* filename){
 // TODO change flag system
 cArrayDouble caNewDoubleArrayFromMxarray(mxArray* mxa, mxComplexity flag){
     cArrayDouble array = caNewArrayDouble();
+    array.type = CARRAY_DOUBLE;
     cArray2Mxarray((cArray*)&array, mxa, flag);
     return array;
 }
 
 cArrayFloat caNewFloatArrayFromMxarray(mxArray* mxa, mxComplexity flag){
     cArrayFloat array = caNewArrayFloat();
+    array.type = CARRAY_FLOAT;
     cArray2Mxarray((cArray*)&array, mxa, flag);
     return array;
 }
@@ -232,18 +220,35 @@ mxArray* caNewMxarrayFromCArray(cArray* real, cArray* complex){
     mxArray* mxarray = NULL;
     if(real){
         mwSize numberOfDimensions = 3;
-        mwSize setImageDim[3] = {real->x, real->y, real->z};
-        if(real->z == 1) numberOfDimensions = 2; //squeeze z away
+        mwSize setImageDim[3] = {real->y, real->x, real->z};
+        if(real->z == 1){
+            numberOfDimensions = 2; //squeeze z away
+            setImageDim[0] = real->y;
+            setImageDim[1] = real->x;
+        }
         switch (real->type) {
             case CARRAY_DOUBLE: ;
                 mxarray = mxCreateNumericArray(numberOfDimensions, setImageDim, mxDOUBLE_CLASS, mxCOMPLEX);
-                if(real) memcpy(mxGetPr(mxarray), (double*)real->data, real->len*sizeof(double));
-                if(complex) memcpy(mxGetPi(mxarray), (double*)complex->data, complex->len*sizeof(double));
+                // TODO have to invert x y z
+                double* mxData = mxGetPr(mxarray);
+                double* cData = real->data;
+                int pointer;
+                int pointerZ;
+                int pointerXY;
+                for(int k = 0; k < real->z; k++){
+                    for(int j = 0; j < real->y; j++){
+                        for(int i = 0; i < real->x; i++){
+                            pointer = i+j*real->x+k*real->x*real->y;
+                            pointerZ = (int) floor((float)pointer/(real->y*real->x));
+                            pointerXY = pointer - pointerZ*(real->y*real->x);
+                            *(mxData+pointer) = *(cData + pointerZ*(real->y*real->x) + (pointerXY%real->y)*real->x + (int) floor((float)pointerXY/(real->y)) );
+                        }
+                    }
+                }
+                //TODO complex case
                 break;
             case CARRAY_FLOAT: ;
-                mxarray = mxCreateNumericArray(numberOfDimensions, setImageDim, mxSINGLE_CLASS, mxCOMPLEX);
-                if(real) memcpy(mxGetPr(mxarray), (float*)real->data, real->len*sizeof(float));
-                if(complex) memcpy(mxGetPi(mxarray), (float*)complex->data, complex->len*sizeof(float));
+                //TODO float case
                 break;
             default: ;
                 break;
@@ -251,6 +256,7 @@ mxArray* caNewMxarrayFromCArray(cArray* real, cArray* complex){
     }
     return mxarray;
 }
+
 
 
 
