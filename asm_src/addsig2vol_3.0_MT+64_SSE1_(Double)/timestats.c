@@ -17,6 +17,7 @@ typedef struct{
 } timer;
 
 static timer timers[TS_TIMERS_N] = { 0 };
+static struct timeval refTimer;
 
 //NOTE:
 // clock() measures time the CPU is executing instruction belonging to this binary. Sleep/Wait doesn't perform any work;
@@ -45,6 +46,24 @@ void tsclock(unsigned int number){
     #endif
 }
 
+void tssettimer(){
+    #ifdef TS_ON
+        gettimeofday(&refTimer, NULL);
+    #endif
+}
+
+
+void tstimer(unsigned int number){
+    #ifdef TS_ON
+        timer* instance = &(timers[number]);
+        gettimeofday(&(instance->toc), NULL);
+        //timers[number].diffsum += abs(measured - timers[number].last);
+        //timers[number].last = measured;
+        timersub(&(instance->toc), &(refTimer), &(instance->result));
+        instance->sum = instance->result.tv_sec*1000000 + instance->result.tv_usec;
+        instance->num ++;
+    #endif
+}
 
 void tsprintAll(double timescale){
     #ifdef TS_ON

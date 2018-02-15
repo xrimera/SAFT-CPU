@@ -715,9 +715,8 @@ void *thread_function(void *argument)
 
        //print("T%i: call assembler code\n", id);
        //printf("pixvektor x, y, z: %f %f %f\n",pix_vecz_buffer[0], pix_vecz_buffer[1], pix_vecz_buffer[2]);
-       tsclock(id);
+       tstimer(id);
        threadstats_mark(id, currentTotalJob, currentAscan);
-       tsclock(id);
        #ifdef C_CODE
        as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
        #else
@@ -763,7 +762,7 @@ void *thread_function(void *argument)
                     //
                     // printf("T%i, currentZn %i, nextStepZ: %i \n", id, currentZn, nextStepZ);
 
-                   if(currentZn >= imgZ){ return NULL;} // finished, last case
+                   if(currentZn >= imgZ){  return NULL;} // finished, last case
                    nextStepZ = posZ;
                    totalElementJumps = delta*posZ*imgX*imgY;
                    if(currentJob ==  fullJobs+halfJobs-1){
@@ -801,7 +800,7 @@ void *thread_function(void *argument)
                    if(jumpsZ == 0) currentYn = currentYn + jumps;
                    else currentYn = jumps%imgY;
                    currentZn += jumpsZ;
-                   if(currentZn >= imgZ){ return NULL;} // finished, last case
+                   if(currentZn >= imgZ){  return NULL;} // finished, last case
 
                    nextStepX = stepX;
                    if(jumps == 0) totalElementJumps = nCores*stepX;
@@ -1546,6 +1545,7 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
         totalAscan = n_AScan_block;
         currentAscan = 0;
 
+        tssettimer();
         ////first Ascan
         // combined REAL & COMPLEX VERSION
         as2v_MT(out_real, AScan_realz_ptr, n_AScan, buffer_real,
@@ -1602,9 +1602,12 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
 
         totalAscan = 0;
         currentAscan = 0;
+            tsclearAll();
 
-        tsclearAll();
     }
+
+
+
     //Daten fehlen
     return results;
 }

@@ -37,4 +37,8 @@ void tsclearAll();
 double getAverageTime(unsigned int number, double timescale);
 double getSumTime(unsigned int number, double timescale);
 
+
+void tssettimer();
+void tstimer(unsigned int number);
+
 #endif // TIMESTATS_H
