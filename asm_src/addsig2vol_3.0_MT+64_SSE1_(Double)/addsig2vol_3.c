@@ -28,7 +28,7 @@
 #endif
 
 #include "timestats.h"
-
+#include "threadstats.h"
 
 
 //extern __declspec(dllimport) int _imp_pthread_join();
@@ -211,6 +211,9 @@ static cArrayDouble cAbuffer_complex;
         static unsigned int halfStepY = 0;
         static unsigned int halfStepX = 0;
         int algostarts = 0;
+
+        static unsigned int totalAscan = 0;
+        static unsigned int currentAscan = 0;
 //CPUcount
 uint64_t CPUCount(void);
 uint64_t TimeCounter(void);
@@ -274,8 +277,7 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
     double*buffer_complexz, double*out_complexz, unsigned int n_Yz, unsigned int n_Zz,
     double *IMAGE_SUMz, double *IMAGE_SUM_complexz)
     {
-        tsclock(0);
-        tsclock(1);
+
         //pthread variables
         #ifdef p_threads
         pthread_t mythread[NUMCORES]; //numCPU -1
@@ -444,7 +446,6 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             if(currentZ >= n_Zz){} // finished, last case
         }
 
-        tsclock(1);
 
     //    interpol & X-SUM (in the case of NUMCORE=1 only call)
             #ifdef C_CODE
@@ -461,7 +462,8 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         #endif
         nextJobWaiting = nCores;
 
-        tsclock(2);
+        threadstats_init(nCores, jobs, totalAscan);
+
         ////release threads
 
         for (i=0;i<nCores;i++)
@@ -483,7 +485,6 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
             if (rc) { print("ERROR: return code from pthread_join() is %d\n", rc); return;}
             #endif
         }
-        tsclock(2);
 
         #ifdef SAVEDATA          ///// save outputs
         mkdir("data/outputs", 0777);
@@ -497,7 +498,6 @@ void as2v_MT(double*outz, double*AScanz, unsigned int n_AScanz, double*bufferz, 
         #ifdef SAVEDATA
         count++;
         #endif
-        tsclock(0);
     }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -715,7 +715,9 @@ void *thread_function(void *argument)
 
        //print("T%i: call assembler code\n", id);
        //printf("pixvektor x, y, z: %f %f %f\n",pix_vecz_buffer[0], pix_vecz_buffer[1], pix_vecz_buffer[2]);
-
+       tsclock(id);
+       threadstats_mark(id, currentTotalJob, currentAscan);
+       tsclock(id);
        #ifdef C_CODE
        as2v_c(arg,arg,arg,arg); //compatible win64 & linxu64 function-call
        #else
@@ -723,6 +725,8 @@ void *thread_function(void *argument)
    //    if (addsig2vol_mode==2) as2v_complex_sm(arg,arg,arg,arg);
 
        #endif
+
+      // printf("T%i, currentTotalJob %i/%i\n", id, currentTotalJob, jobs);
 
   //decomposing for old function
   /* as2v_c(tt->outz, tt->AScanz, tt->n_AScanz, tt->bufferz, tt->pix_vectz,
@@ -738,7 +742,7 @@ void *thread_function(void *argument)
            internJob = nextJobWaiting;
              nextJobWaiting++;
            pthread_mutex_unlock(&threadMutex);
-           if(id == 0){tsclock(12);}
+
            // Anzahl der Jobsprünge (global)
            delta = (internJob-currentTotalJob);
            //print("T%i, delta: %i\n", id, delta);
@@ -756,11 +760,10 @@ void *thread_function(void *argument)
                     //print("ZAXIS\n");
 
                    currentZn = currentTotalJob*posZ;
-                    //printf("T%i, currentTotalJob %i/%i\n", id, currentTotalJob, fullJobs);
                     //
                     // printf("T%i, currentZn %i, nextStepZ: %i \n", id, currentZn, nextStepZ);
 
-                   if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
+                   if(currentZn >= imgZ){ return NULL;} // finished, last case
                    nextStepZ = posZ;
                    totalElementJumps = delta*posZ*imgX*imgY;
                    if(currentJob ==  fullJobs+halfJobs-1){
@@ -777,7 +780,7 @@ void *thread_function(void *argument)
                    oldCurrentY = currentYn;
                    currentYn = currentJob*posY;
                    currentZn += jumps;
-                   if(currentZn >= imgZ){if(id == 0){tsclock(12);} return NULL;} // finished, last case
+                   if(currentZn >= imgZ){ return NULL;} // finished, last case
 
                    nextStepY = stepY;
                    if(jumps == 0) totalElementJumps = delta*stepY*imgX;
@@ -798,7 +801,7 @@ void *thread_function(void *argument)
                    if(jumpsZ == 0) currentYn = currentYn + jumps;
                    else currentYn = jumps%imgY;
                    currentZn += jumpsZ;
-                   if(currentZn >= imgZ){if(id == 0){tsclock(12);}return NULL;} // finished, last case
+                   if(currentZn >= imgZ){ return NULL;} // finished, last case
 
                    nextStepX = stepX;
                    if(jumps == 0) totalElementJumps = nCores*stepX;
@@ -829,7 +832,6 @@ void *thread_function(void *argument)
        arg->IMAGE_SUMz+=totalElementJumps;//
        arg->IMAGE_SUM_complexz+=totalElementJumps; //
 
-       if(id == 0){tsclock(12);}
    }
     return NULL;
 }
@@ -1131,10 +1133,6 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
           //print("i: %i, Nx: %i, Nz: %i \n", i, MIN_VOXEL, (uint32_t) floor(i/MIN_VOXEL) );
 
 
-             tsclear(0);
-             tsclear(1);
-              tsclear(2);
-              tsclear(12);
           for (j=0;j<minAverage;j++)
           {
 
@@ -1149,18 +1147,7 @@ void as2v_bench(uint64_t throughput[], uint64_t latency[])
               average_buffer[j]= counter2-counter;
 
           }
-          // tsprint(4,TS_MIKRO);
-          // tsprint(5,TS_MIKRO);
-          // tsprint(8,TS_MIKRO);
-          // tsprint(7,TS_MIKRO);
-           tsprint(0,TS_MIKRO);
-           tsprint(1,TS_MIKRO);
-           tsprint(2,TS_MIKRO);
-           tsprint(12,TS_MIKRO);
-           tsclear(0);
-           tsclear(1);
-            tsclear(2);
-            tsclear(12);
+
           //bubblesort (small time top)
           for (k=minAverage-1;k>0;k--)
           {  for (l=minAverage-1;l>0;l--){
@@ -1556,6 +1543,9 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
         saveDoubleArrayUnstruct(IMAGE_SUM_realz_ptr, n_X, n_Y, n_Z, "data/IMAGE_SUM");
         #endif
 
+        totalAscan = n_AScan_block;
+        currentAscan = 0;
+
         ////first Ascan
         // combined REAL & COMPLEX VERSION
         as2v_MT(out_real, AScan_realz_ptr, n_AScan, buffer_real,
@@ -1568,6 +1558,7 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
             #ifdef addsig2vol_debug
             print("as2v_MT call %i:\n", i);
             #endif
+            currentAscan++;
 
             //check for complex ascan only increase if available because NULL-Pointer +something -> not anymore a nullpointer!
             if (AScan_complexz != NULL)	AScan_complexz = AScan_complexz + (n_AScan * (i - 1)); //set to next value
@@ -1608,6 +1599,11 @@ as2v_results as2v_addsig2vol_3(cArrayDouble* AScan_realz, cArrayDouble* AScan_co
         results.buffer_real = &cAbuffer_real;
         results.buffer_complex = &cAbuffer_complex;
         results.out_complex = &cAout_complex;
+
+        totalAscan = 0;
+        currentAscan = 0;
+
+        tsclearAll();
     }
     //Daten fehlen
     return results;

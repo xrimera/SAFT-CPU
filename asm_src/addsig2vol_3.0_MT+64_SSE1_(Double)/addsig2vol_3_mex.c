@@ -2,10 +2,14 @@
 #include "as2v_array.h"
 #include "mex.h"
 #include "addsig2vol_3_unittests.h"
+#include "threadstats.h"
 
 //define matlab in and out
 #define out       (plhs[0])
 #define out2      (plhs[1])
+#define tt1      (plhs[2])
+#define tt2      (plhs[3])
+#define tt3      (plhs[4])
 
 #define AScan     (prhs[0])
 #define pix_vect  (prhs[1])
@@ -52,7 +56,7 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
     caSetPrintCallback(&printf);
 
 
-    if (nlhs > 2) mexErrMsgTxt("Too many output arguments.");
+    //if (nlhs > 2) mexErrMsgTxt("Too many output arguments.");
 
     switch (nrhs) {
         default:
@@ -121,6 +125,10 @@ void mexFunction (int nlhs, mxArray*plhs[], int nrhs, const mxArray*prhs[]) {
             as2v_results result = as2v_addsig2vol_3(&AScan_realz, &AScan_complexz,
             &pix_vectz, &rec_posz, &send_posz, &speedz, mxGetPr(res), mxGetPr(timeint),
             &IMAGE_SUM_realz, &IMAGE_SUM_complexz, &out_image, &out_buffer);
+
+            tt1 = caNewMxarrayFromCArray(threadstats_get_timestamps(),NULL);
+            tt2 = caNewMxarrayFromCArray(threadstats_get_moveToTask(),NULL);
+            tt3 = caNewMxarrayFromCArray(threadstats_get_threadnumber(),NULL);
 
             // Octave/Matlab Spaltendominant?
             //out_image.data[1] = 9999;
