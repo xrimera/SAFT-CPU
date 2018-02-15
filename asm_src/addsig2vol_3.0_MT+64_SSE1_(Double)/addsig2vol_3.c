@@ -784,6 +784,7 @@ void *thread_function(void *argument)
                    else totalElementJumps = (imgY-oldCurrentY)*imgX + currentYn*imgX +  (jumps-1)*imgY*imgX;
                    if(currentJob ==  fullJobs+halfJobs-1){
                        nextStepY = halfStepY;
+
                    }
                    nextStepX = imgX;
                    nextStepZ = 1;
@@ -804,7 +805,7 @@ void *thread_function(void *argument)
                    // TODO ausrechnen!!
                    else totalElementJumps = (imgX-oldCurrentX) + currentXn + jumps*imgX;
 
-                   if(currentJob== fullJobs){
+                   if(currentJob== fullJobs+halfJobs-1){
                        nextStepX = halfStepX;
                    }
                    nextStepY = 1;
